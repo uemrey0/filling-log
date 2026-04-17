@@ -3,39 +3,35 @@
 ## Stappen
 
 ### 1. Deploy naar Vercel
-Push naar GitHub en koppel het project in Vercel. De build slaagt ook zonder DATABASE_URL.
+Push naar GitHub en koppel het project in Vercel.
+De build slaagt ook zonder database — de connectie wordt pas gelegd bij de eerste API-aanroep.
 
-### 2. Maak de database aan
-In Vercel: **Storage → Create Database → Postgres (Aurora Serverless / Neon / Supabase)**
-Of gebruik een externe AWS Aurora PostgreSQL cluster.
+### 2. AWS Aurora koppelen in Vercel
+Vercel → Project → **Storage → Connect Database → AWS Aurora**
 
-### 3. Voeg DATABASE_URL toe
-Vercel → Project → **Settings → Environment Variables**
+Vercel voegt automatisch de volgende env vars toe:
+- `PGHOST`
+- `PGPORT`
+- `PGUSER`
+- `PGDATABASE`
+- `AWS_REGION`
+- `AWS_ROLE_ARN`
+
+### 3. Database tabellen aanmaken
+Voer eenmalig de migratie SQL uit via de AWS RDS Query Editor of een databasetool:
 
 ```
-DATABASE_URL = postgresql://user:password@host:5432/dbname
+drizzle/migrations/0001_initial.sql
 ```
 
-### 4. Voer de migratie uit
-Eenmalig na het instellen van DATABASE_URL:
-
-```bash
-DATABASE_URL="postgresql://..." bun drizzle-kit migrate
-```
-
-Of kopieer de SQL uit `drizzle/migrations/0001_initial.sql` en voer het uit via de databaseconsole.
-
-### 5. Herstart de deployment
-Na het instellen van de env var: Vercel → **Deployments → Redeploy**.
+### 4. Redeploy
+Na het koppelen van de database: Vercel → **Deployments → Redeploy**.
 
 ---
 
 ## Lokale ontwikkeling
 
-Maak `.env.local` aan:
-```
-DATABASE_URL=postgresql://localhost:5432/fillerlog
-```
+Maak `.env.local` aan op basis van `.env.local.example` en vul de waarden in vanuit Vercel → Settings → Environment Variables.
 
 ```bash
 bun dev

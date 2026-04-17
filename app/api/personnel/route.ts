@@ -15,8 +15,10 @@ export async function GET(request: NextRequest) {
       : await query.orderBy(asc(personnel.fullName))
 
     return Response.json(rows)
-  } catch {
-    return Response.json({ error: 'Failed to fetch personnel' }, { status: 500 })
+  } catch (err) {
+    console.error('[GET /api/personnel] error:', err)
+    const message = err instanceof Error ? err.message : String(err)
+    return Response.json({ error: 'Failed to fetch personnel', detail: message }, { status: 500 })
   }
 }
 
