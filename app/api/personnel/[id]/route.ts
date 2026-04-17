@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { personnel, taskSessions } from '@/lib/db/schema'
+import { personnel, taskSessions, tasks } from '@/lib/db/schema'
 import { personnelSchema } from '@/lib/validations'
 import { eq, desc, sql } from 'drizzle-orm'
 
@@ -20,12 +20,23 @@ export async function GET(
         endedAt: taskSessions.endedAt,
         workDate: taskSessions.workDate,
         taskId: taskSessions.taskId,
-        actualMinutes: sql<number>`ROUND(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60, 1)`,
+        department: tasks.department,
+        colliCount: tasks.colliCount,
+        expectedMinutes: tasks.expectedMinutes,
+        actualMinutes: sql<number | null>`
+          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
+          THEN ROUND((EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60)::numeric, 1)
+          ELSE NULL END`,
+        performanceDiff: sql<number | null>`
+          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
+          THEN ROUND((EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes})::numeric, 1)
+          ELSE NULL END`,
       })
       .from(taskSessions)
+      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
       .where(eq(taskSessions.personnelId, id))
       .orderBy(desc(taskSessions.startedAt))
-      .limit(50)
+      .limit(100)
 
     return Response.json({ ...person, sessions })
   } catch {

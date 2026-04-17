@@ -9,23 +9,21 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card } from '@/components/ui/Card'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { PersonnelCombobox, type PersonnelChip } from '@/components/ui/PersonnelCombobox'
 import { ConflictResolution, type ConflictInfo, type ConflictResolutionResult } from '@/components/ui/ConflictResolution'
 import { DEPARTMENT_KEYS, getDepartmentLabel } from '@/lib/departments'
 import { calcExpectedMinutes } from '@/lib/business'
 import type { Personnel } from '@/lib/db/schema'
 
-type Step = 'form' | 'conflicts'
-
 export default function NewTaskPage() {
   const { t, lang } = useLanguage()
   const router = useRouter()
 
-  const [step, setStep] = useState<Step>('form')
   const [personnel, setPersonnel] = useState<Personnel[]>([])
   const [selectedPersonnel, setSelectedPersonnel] = useState<PersonnelChip[]>([])
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([])
-  const [resolutions, setResolutions] = useState<ConflictResolutionResult[]>([])
+  const [showConflicts, setShowConflicts] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checkingConflicts, setCheckingConflicts] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -38,7 +36,7 @@ export default function NewTaskPage() {
 
   const expectedMinutes =
     form.colliCount && !isNaN(Number(form.colliCount)) && Number(form.colliCount) > 0
-      ? calcExpectedMinutes(Number(form.colliCount))
+      ? calcExpectedMinutes(Number(form.colliCount), Math.max(1, selectedPersonnel.length))
       : null
 
   const loadPersonnel = useCallback(async () => {
@@ -70,7 +68,6 @@ export default function NewTaskPage() {
     return e
   }
 
-  // Step 1: check for conflicts, then either show conflict UI or submit directly
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errs = validate()
@@ -85,11 +82,10 @@ export default function NewTaskPage() {
       const found: ConflictInfo[] = await res.json()
 
       if (found.length === 0) {
-        // No conflicts — submit immediately
         await submitTask([])
       } else {
         setConflicts(found)
-        setStep('conflicts')
+        setShowConflicts(true)
       }
     } catch {
       setErrors({ submit: t('common.error') })
@@ -98,10 +94,9 @@ export default function NewTaskPage() {
     }
   }
 
-  // Step 2: after conflict resolution, submit
   const handleConflictsResolved = async (results: ConflictResolutionResult[]) => {
-    setResolutions(results)
     await submitTask(results)
+    setShowConflicts(false)
   }
 
   const submitTask = async (resolvedConflicts: ConflictResolutionResult[]) => {
@@ -123,7 +118,6 @@ export default function NewTaskPage() {
         router.refresh()
       } else {
         const data = await res.json()
-        setStep('form')
         setErrors({ submit: data.error ?? t('common.error') })
       }
     } finally {
@@ -138,100 +132,107 @@ export default function NewTaskPage() {
 
   return (
     <div className="space-y-5">
+      {/* Page header */}
       <div className="flex items-center gap-3">
-        <Link href="/dashboard" className="text-gray-400 hover:text-gray-700 transition-colors">
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Link
+          href="/dashboard"
+          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <h1 className="text-xl font-bold text-black">
-          {step === 'form' ? t('taskForm.title') : (lang === 'nl' ? 'Vorige taak' : 'Previous task')}
-        </h1>
+        <div>
+          <h1 className="text-xl font-bold text-black">{t('taskForm.title')}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">{t('taskForm.subtitle') || (lang === 'nl' ? 'Vul de gegevens in om een taak te starten' : 'Fill in the details to start a task')}</p>
+        </div>
       </div>
 
       <Card>
-        {step === 'form' ? (
-          <form onSubmit={handleFormSubmit} className="space-y-5">
-            <PersonnelCombobox
-              personnel={personnel}
-              selected={selectedPersonnel}
-              onSelect={(p) => setSelectedPersonnel((prev) => {
-                if (prev.find((x) => x.id === p.id)) return prev
-                return [...prev, p]
-              })}
-              onRemove={(id) => setSelectedPersonnel((prev) => prev.filter((p) => p.id !== id))}
-              onAddNew={handleAddNew}
-              label={t('tasks.personnel')}
-              error={errors.personnel}
+        <form onSubmit={handleFormSubmit} className="space-y-5">
+          <PersonnelCombobox
+            personnel={personnel}
+            selected={selectedPersonnel}
+            onSelect={(p) => setSelectedPersonnel((prev) => {
+              if (prev.find((x) => x.id === p.id)) return prev
+              return [...prev, p]
+            })}
+            onRemove={(id) => setSelectedPersonnel((prev) => prev.filter((p) => p.id !== id))}
+            onAddNew={handleAddNew}
+            label={t('tasks.personnel')}
+            error={errors.personnel}
+          />
+
+          <Select
+            label={t('taskForm.department')}
+            options={departmentOptions}
+            placeholder={t('taskForm.selectDepartment')}
+            value={form.department}
+            onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
+            error={errors.department}
+          />
+
+          <div>
+            <Input
+              label={t('taskForm.colliCount')}
+              type="number"
+              inputMode="numeric"
+              placeholder={t('taskForm.colliPlaceholder')}
+              value={form.colliCount}
+              min={1}
+              max={9999}
+              onChange={(e) => setForm((f) => ({ ...f, colliCount: e.target.value }))}
+              error={errors.colliCount}
             />
-
-            <Select
-              label={t('taskForm.department')}
-              options={departmentOptions}
-              placeholder={t('taskForm.selectDepartment')}
-              value={form.department}
-              onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-              error={errors.department}
-            />
-
-            <div>
-              <Input
-                label={t('taskForm.colliCount')}
-                type="number"
-                inputMode="numeric"
-                placeholder={t('taskForm.colliPlaceholder')}
-                value={form.colliCount}
-                min={1}
-                max={9999}
-                onChange={(e) => setForm((f) => ({ ...f, colliCount: e.target.value }))}
-                error={errors.colliCount}
-              />
-              {expectedMinutes !== null && (
-                <div
-                  className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium"
-                  style={{ backgroundColor: '#80BC17' + '15', color: '#1C7745' }}
-                >
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  {t('taskForm.expectedMinutes')}:
-                  <span className="font-bold">{expectedMinutes} {t('taskForm.minutes')}</span>
-                </div>
-              )}
-            </div>
-
-            <Textarea
-              label={t('taskForm.notes')}
-              placeholder={t('taskForm.notesPlaceholder')}
-              value={form.notes}
-              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            />
-
-            {errors.submit && (
-              <div className="rounded-lg px-4 py-3 text-sm font-medium border" style={{ backgroundColor: '#FEF2F2', color: '#E40B17', borderColor: '#FCA5A5' }}>
-                {errors.submit}
+            {expectedMinutes !== null && (
+              <div
+                className="mt-2 flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium"
+                style={{ backgroundColor: '#80BC17' + '15', color: '#1C7745' }}
+              >
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {t('taskForm.expectedMinutes')}:
+                <span className="font-bold">{expectedMinutes} {t('taskForm.minutes')}</span>
               </div>
             )}
+          </div>
 
-            <div className="flex gap-3 pt-1">
-              <Button type="submit" loading={checkingConflicts || loading} fullWidth size="lg">
-                {t('taskForm.startTask')}
-              </Button>
-              <Link href="/dashboard" className="flex-1">
-                <Button type="button" variant="secondary" fullWidth size="lg">
-                  {t('taskForm.cancel')}
-                </Button>
-              </Link>
-            </div>
-          </form>
-        ) : (
-          <ConflictResolution
-            conflicts={conflicts}
-            onResolved={handleConflictsResolved}
-            onCancel={() => setStep('form')}
+          <Textarea
+            label={t('taskForm.notes')}
+            placeholder={t('taskForm.notesPlaceholder')}
+            value={form.notes}
+            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
           />
-        )}
+
+          {errors.submit && (
+            <div className="rounded-xl px-4 py-3 text-sm font-medium border" style={{ backgroundColor: '#FEF2F2', color: '#E40B17', borderColor: '#FCA5A5' }}>
+              {errors.submit}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <Button type="submit" loading={checkingConflicts || loading} fullWidth size="lg">
+              {t('taskForm.startTask')}
+            </Button>
+            <Link href="/dashboard" className="flex-1">
+              <Button type="button" variant="secondary" fullWidth size="lg">
+                {t('taskForm.cancel')}
+              </Button>
+            </Link>
+          </div>
+        </form>
       </Card>
+
+      {/* Conflict resolution: modal on desktop, bottom sheet on mobile */}
+      <ModalOrSheet open={showConflicts} onClose={loading ? undefined : () => setShowConflicts(false)}>
+        <ConflictResolution
+          conflicts={conflicts}
+          onResolved={handleConflictsResolved}
+          onCancel={() => setShowConflicts(false)}
+          submitting={loading}
+        />
+      </ModalOrSheet>
     </div>
   )
 }

@@ -31,14 +31,24 @@ export async function GET(request: NextRequest) {
         personnelName: personnel.fullName,
         startedAt: taskSessions.startedAt,
         endedAt: taskSessions.endedAt,
+        isPaused: taskSessions.isPaused,
+        pausedSince: taskSessions.pausedSince,
+        totalPausedMinutes: taskSessions.totalPausedMinutes,
         workDate: taskSessions.workDate,
         actualMinutes: sql<number | null>`
           CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60, 1)
+          THEN ROUND((
+            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
+            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
+          )::numeric, 1)
           ELSE NULL END`,
         performanceDiff: sql<number | null>`
           CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}, 1)
+          THEN ROUND((
+            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
+            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
+            - ${tasks.expectedMinutes}
+          )::numeric, 1)
           ELSE NULL END`,
       })
       .from(taskSessions)
@@ -62,8 +72,9 @@ export async function GET(request: NextRequest) {
         : await sessionsQuery.orderBy(desc(taskSessions.startedAt))
 
     return Response.json(rows)
-  } catch {
-    return Response.json({ error: 'Failed to fetch tasks' }, { status: 500 })
+  } catch (err) {
+    console.error('[GET /api/tasks]', err)
+    return Response.json({ error: 'Failed to fetch tasks', detail: String(err) }, { status: 500 })
   }
 }
 
@@ -76,16 +87,17 @@ export async function POST(request: NextRequest) {
     }
 
     const { personnelIds, department, colliCount, notes, resolutions } = parsed.data
-    const expectedMinutes = calcExpectedMinutes(colliCount)
+    const expectedMinutes = calcExpectedMinutes(colliCount, personnelIds.length)
     const now = new Date()
     const workDate = todayDate()
 
     const result = await withTransaction(async (client: ClientBase) => {
       const txDb = drizzle(client as unknown as NodePgClient, { schema })
 
-      // Handle each conflict resolution
+      // Handle each conflict resolution (one per task)
       for (const res of resolutions) {
         if (res.isDone) {
+          // End all active sessions for this task
           await txDb
             .update(taskSessions)
             .set({ endedAt: now, updatedAt: now })
@@ -93,6 +105,7 @@ export async function POST(request: NextRequest) {
         } else {
           const remainingColli = res.remainingColli ?? 0
 
+          // Find personnel on this task who are NOT switching to the new task
           const otherActiveSessions = await txDb
             .select({ personnelId: taskSessions.personnelId })
             .from(taskSessions)
@@ -117,21 +130,23 @@ export async function POST(request: NextRequest) {
 
             await txDb
               .update(tasks)
-              .set({ colliCount: doneColli, expectedMinutes: calcExpectedMinutes(doneColli), updatedAt: now })
+              .set({ colliCount: doneColli, expectedMinutes: calcExpectedMinutes(doneColli, 1), updatedAt: now })
               .where(eq(tasks.id, res.taskId))
 
+            // End all active sessions for the original task
             await txDb
               .update(taskSessions)
               .set({ endedAt: now, updatedAt: now })
               .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
 
+            // Create a continuation task for personnel who are NOT joining the new task
             if (otherActiveSessions.length > 0 && remainingColli > 0) {
               const [continuationTask] = await txDb
                 .insert(tasks)
                 .values({
                   department: originalTask.department,
                   colliCount: remainingColli,
-                  expectedMinutes: calcExpectedMinutes(remainingColli),
+                  expectedMinutes: calcExpectedMinutes(remainingColli, otherActiveSessions.length),
                   notes: originalTask.notes,
                 })
                 .returning()
@@ -149,15 +164,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Safety net: close any remaining active sessions not covered by resolutions
-      const resolvedIds = resolutions.map((r) => r.personnelId)
-      const unresolvedIds = personnelIds.filter((id) => !resolvedIds.includes(id))
-      if (unresolvedIds.length > 0) {
-        await txDb
-          .update(taskSessions)
-          .set({ endedAt: now, updatedAt: now })
-          .where(and(inArray(taskSessions.personnelId, unresolvedIds), isNull(taskSessions.endedAt)))
-      }
+      // Safety net: close any remaining active sessions for the new task's personnel
+      await txDb
+        .update(taskSessions)
+        .set({ endedAt: now, updatedAt: now })
+        .where(and(inArray(taskSessions.personnelId, personnelIds), isNull(taskSessions.endedAt)))
 
       // Create the new task
       const [task] = await txDb

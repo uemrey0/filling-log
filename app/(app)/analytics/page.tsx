@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
+import { PersonnelSearchSelect } from '@/components/ui/PersonnelSearchSelect'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatDuration, formatDate } from '@/lib/business'
 import type { Personnel } from '@/lib/db/schema'
@@ -102,11 +103,6 @@ export default function AnalyticsPage() {
     ...DEPARTMENT_KEYS.map((k) => ({ value: k, label: getDepartmentLabel(k, lang) })),
   ]
 
-  const personnelOptions = [
-    { value: '', label: t('analytics.allPersonnel') },
-    ...personnel.map((p) => ({ value: p.id, label: p.fullName })),
-  ]
-
   return (
     <div className="space-y-5">
       <PageHeader title={t('analytics.title')} />
@@ -115,47 +111,50 @@ export default function AnalyticsPage() {
       <Card padding="md">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">{t('analytics.filters')}</h2>
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date range - stacked on mobile */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">{t('analytics.dateFrom')}</label>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1 block">{t('analytics.dateTo')}</label>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
           </div>
+
+          {/* Personnel search */}
+          <PersonnelSearchSelect
+            personnel={personnel}
+            value={filters.personnelId}
+            onChange={(id) => setFilters((f) => ({ ...f, personnelId: id }))}
+            label={t('analytics.allPersonnel')}
+            allLabel={t('analytics.allPersonnel')}
+          />
+
+          {/* Department */}
           <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">{t('analytics.allPersonnel')}</label>
-            <select
-              value={filters.personnelId}
-              onChange={(e) => setFilters((f) => ({ ...f, personnelId: e.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {personnelOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">{t('analytics.allDepartments')}</label>
+            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.allDepartments')}</label>
             <select
               value={filters.department}
               onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
             >
               {departmentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
-          <div className="flex gap-3">
+
+          <div className="flex gap-3 pt-1">
             <Button fullWidth onClick={handleApply}>{t('analytics.apply')}</Button>
             <Button variant="secondary" onClick={handleReset}>{t('analytics.reset')}</Button>
           </div>
@@ -174,7 +173,7 @@ export default function AnalyticsPage() {
         <>
           {/* Overview */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+            <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
               {t('analytics.overview')}
             </h2>
             <div className="grid grid-cols-2 gap-3">
@@ -183,20 +182,20 @@ export default function AnalyticsPage() {
                 <div className="text-xs text-gray-500 mt-0.5">{t('analytics.completedSessions')}</div>
               </Card>
               <Card padding="sm" className="text-center">
-                <div className="text-2xl font-bold">
-                  <PerformanceDiff diffMinutes={data.overview.avgDiffMinutes} />
+                <div className="flex justify-center items-center" style={{ minHeight: '2rem' }}>
+                  <PerformanceDiff diffMinutes={Number(data.overview.avgDiffMinutes)} />
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">{t('analytics.avgDifference')}</div>
               </Card>
               <Card padding="sm" className="text-center">
                 <div className="text-xl font-bold text-gray-900">
-                  {formatDuration(data.overview.avgExpectedMinutes)}
+                  {formatDuration(Number(data.overview.avgExpectedMinutes))}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">{t('analytics.avgExpected')}</div>
               </Card>
               <Card padding="sm" className="text-center">
                 <div className="text-xl font-bold text-gray-900">
-                  {formatDuration(data.overview.avgActualMinutes)}
+                  {formatDuration(Number(data.overview.avgActualMinutes))}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">{t('analytics.avgActual')}</div>
               </Card>
@@ -206,20 +205,28 @@ export default function AnalyticsPage() {
           {/* By personnel */}
           {data.byPersonnel.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
                 {t('analytics.byPersonnel')}
               </h2>
               <Card padding="none">
                 <div className="divide-y divide-gray-100">
                   {data.byPersonnel.map((row) => (
                     <div key={row.personnelId} className="flex items-center justify-between px-4 py-3 gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm text-gray-900 truncate">{row.personnelName}</div>
-                        <div className="text-xs text-gray-500">
-                          {row.sessionCount} {t('analytics.sessionCount')} &middot; {t('analytics.avgExpected')}: {formatDuration(row.avgExpected)} &middot; {t('analytics.avgActual')}: {formatDuration(row.avgActual)}
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                          style={{ backgroundColor: '#80BC17' + '20', color: '#1C7745' }}
+                        >
+                          {row.personnelName.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm text-gray-900 truncate">{row.personnelName}</div>
+                          <div className="text-xs text-gray-500">
+                            {row.sessionCount} {t('analytics.sessionCount')} · {formatDuration(Number(row.avgActual))}
+                          </div>
                         </div>
                       </div>
-                      <PerformanceDiff diffMinutes={row.avgDiff} />
+                      <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
                     </div>
                   ))}
                 </div>
@@ -230,7 +237,7 @@ export default function AnalyticsPage() {
           {/* By department */}
           {data.byDepartment.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
                 {t('analytics.byDepartment')}
               </h2>
               <Card padding="none">
@@ -242,10 +249,10 @@ export default function AnalyticsPage() {
                           {getDepartmentLabel(row.department, lang)}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {row.sessionCount} {t('analytics.sessionCount')} &middot; {t('analytics.avgActual')}: {formatDuration(row.avgActual)}
+                          {row.sessionCount} {t('analytics.sessionCount')} · {formatDuration(Number(row.avgActual))}
                         </div>
                       </div>
-                      <PerformanceDiff diffMinutes={row.avgDiff} />
+                      <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
                     </div>
                   ))}
                 </div>
@@ -253,10 +260,10 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {/* Daily overview */}
+          {/* Daily */}
           {data.daily.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
                 {t('analytics.dailyOverview')}
               </h2>
               <Card padding="none">
@@ -265,11 +272,9 @@ export default function AnalyticsPage() {
                     <div key={row.date} className="flex items-center justify-between px-4 py-3 gap-3">
                       <div className="flex-1">
                         <div className="font-medium text-sm text-gray-900">{formatDate(row.date)}</div>
-                        <div className="text-xs text-gray-500">
-                          {row.sessionCount} {t('analytics.sessionCount')}
-                        </div>
+                        <div className="text-xs text-gray-500">{row.sessionCount} {t('analytics.sessionCount')}</div>
                       </div>
-                      <PerformanceDiff diffMinutes={row.avgDiff} />
+                      <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
                     </div>
                   ))}
                 </div>

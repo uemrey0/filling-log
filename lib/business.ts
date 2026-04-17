@@ -1,5 +1,5 @@
-export function calcExpectedMinutes(colliCount: number): number {
-  return colliCount + 5
+export function calcExpectedMinutes(colliCount: number, personnelCount: number = 1): number {
+  return Math.ceil(colliCount / Math.max(1, personnelCount))
 }
 
 export function calcActualMinutes(startedAt: Date, endedAt: Date): number {

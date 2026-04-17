@@ -12,19 +12,36 @@ export async function POST(
     const body = await request.json().catch(() => ({}))
     const endedAt = body.endedAt ? new Date(body.endedAt) : new Date()
 
-    // id here is session id
-    const [updated] = await db
-      .update(taskSessions)
-      .set({ endedAt, updatedAt: new Date() })
-      .where(and(eq(taskSessions.id, id), isNull(taskSessions.endedAt)))
-      .returning()
+    const activeSessions = await db
+      .select()
+      .from(taskSessions)
+      .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
 
-    if (!updated) {
-      return Response.json({ error: 'Session not found or already ended' }, { status: 404 })
+    if (activeSessions.length === 0) {
+      return Response.json({ error: 'Task not found or no active sessions' }, { status: 404 })
     }
 
-    return Response.json(updated)
+    // End each session, accounting for any accumulated pause time
+    for (const session of activeSessions) {
+      let finalPausedMinutes = session.totalPausedMinutes ?? 0
+      if (session.isPaused && session.pausedSince) {
+        finalPausedMinutes += (endedAt.getTime() - session.pausedSince.getTime()) / 60000
+      }
+
+      await db
+        .update(taskSessions)
+        .set({
+          endedAt,
+          isPaused: false,
+          pausedSince: null,
+          totalPausedMinutes: finalPausedMinutes,
+          updatedAt: new Date(),
+        })
+        .where(eq(taskSessions.id, session.id))
+    }
+
+    return Response.json({ ended: activeSessions.length })
   } catch {
-    return Response.json({ error: 'Failed to end session' }, { status: 500 })
+    return Response.json({ error: 'Failed to end task' }, { status: 500 })
   }
 }

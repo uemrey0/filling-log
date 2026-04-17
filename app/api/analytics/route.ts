@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, taskSessions, personnel } from '@/lib/db/schema'
-import { eq, sql, and, gte, lte, isNotNull, avg, count } from 'drizzle-orm'
+import { eq, sql, and, gte, lte, isNotNull, count } from 'drizzle-orm'
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,9 +23,9 @@ export async function GET(request: NextRequest) {
     const [overview] = await db
       .select({
         totalSessions: count(taskSessions.id),
-        avgExpectedMinutes: sql<number>`ROUND(AVG(${tasks.expectedMinutes}), 1)`,
-        avgActualMinutes: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60), 1)`,
-        avgDiffMinutes: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}), 1)`,
+        avgExpectedMinutes: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
+        avgActualMinutes: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
+        avgDiffMinutes: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
       })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
@@ -37,9 +37,9 @@ export async function GET(request: NextRequest) {
         personnelId: taskSessions.personnelId,
         personnelName: personnel.fullName,
         sessionCount: count(taskSessions.id),
-        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes}), 1)`,
-        avgActual: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60), 1)`,
-        avgDiff: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}), 1)`,
+        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
+        avgActual: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
+        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
       })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
@@ -53,9 +53,9 @@ export async function GET(request: NextRequest) {
       .select({
         department: tasks.department,
         sessionCount: count(taskSessions.id),
-        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes}), 1)`,
-        avgActual: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60), 1)`,
-        avgDiff: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}), 1)`,
+        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
+        avgActual: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
+        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
       })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       .select({
         date: taskSessions.workDate,
         sessionCount: count(taskSessions.id),
-        avgDiff: sql<number>`ROUND(AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}), 1)`,
+        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
       })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
@@ -78,7 +78,8 @@ export async function GET(request: NextRequest) {
       .limit(30)
 
     return Response.json({ overview, byPersonnel, byDepartment, daily })
-  } catch {
+  } catch (err) {
+    console.error('[GET /api/analytics]', err)
     return Response.json({ error: 'Failed to fetch analytics' }, { status: 500 })
   }
 }

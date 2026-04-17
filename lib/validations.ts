@@ -8,8 +8,6 @@ export const personnelSchema = z.object({
 })
 
 const resolutionSchema = z.object({
-  personnelId: z.string().uuid(),
-  sessionId: z.string().uuid(),
   taskId: z.string().uuid(),
   isDone: z.boolean(),
   remainingColli: z.number().int().min(1).optional(),
@@ -31,3 +29,4 @@ export type PersonnelInput = z.infer<typeof personnelSchema>
 export type StartTaskInput = z.infer<typeof startTaskSchema>
 export type EndSessionInput = z.infer<typeof endSessionSchema>
 export type TaskResolution = z.infer<typeof resolutionSchema>
+export { resolutionSchema }

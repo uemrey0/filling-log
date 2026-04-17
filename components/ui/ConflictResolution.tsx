@@ -6,19 +6,19 @@ import { Button } from './Button'
 import { getDepartmentLabel } from '@/lib/departments'
 
 export interface ConflictInfo {
-  sessionId: string
   taskId: string
-  personnelId: string
-  personnelName: string
   department: string
   colliCount: number
   expectedMinutes: number
   startedAt: string
+  sessions: Array<{
+    sessionId: string
+    personnelId: string
+    personnelName: string
+  }>
 }
 
 export interface ConflictResolutionResult {
-  personnelId: string
-  sessionId: string
   taskId: string
   isDone: boolean
   remainingColli?: number
@@ -28,6 +28,7 @@ interface ConflictResolutionProps {
   conflicts: ConflictInfo[]
   onResolved: (results: ConflictResolutionResult[]) => void
   onCancel: () => void
+  submitting?: boolean
 }
 
 type Resolution = {
@@ -35,29 +36,33 @@ type Resolution = {
   remainingColli: string
 }
 
-export function ConflictResolution({ conflicts, onResolved, onCancel }: ConflictResolutionProps) {
+function initials(name: string) {
+  return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+}
+
+export function ConflictResolution({ conflicts, onResolved, onCancel, submitting = false }: ConflictResolutionProps) {
   const { lang } = useLanguage()
 
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
-    Object.fromEntries(conflicts.map((c) => [c.sessionId, { isDone: null, remainingColli: '' }])),
+    Object.fromEntries(conflicts.map((c) => [c.taskId, { isDone: null, remainingColli: '' }])),
   )
 
-  const setIsDone = (sessionId: string, val: boolean) => {
+  const setIsDone = (taskId: string, val: boolean) => {
     setResolutions((prev) => ({
       ...prev,
-      [sessionId]: { ...prev[sessionId], isDone: val },
+      [taskId]: { ...prev[taskId], isDone: val },
     }))
   }
 
-  const setRemainingColli = (sessionId: string, val: string) => {
+  const setRemainingColli = (taskId: string, val: string) => {
     setResolutions((prev) => ({
       ...prev,
-      [sessionId]: { ...prev[sessionId], remainingColli: val },
+      [taskId]: { ...prev[taskId], remainingColli: val },
     }))
   }
 
   const canSubmit = conflicts.every((c) => {
-    const r = resolutions[c.sessionId]
+    const r = resolutions[c.taskId]
     if (r.isDone === null) return false
     if (!r.isDone) {
       const n = Number(r.remainingColli)
@@ -68,10 +73,8 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
 
   const handleSubmit = () => {
     const results: ConflictResolutionResult[] = conflicts.map((c) => {
-      const r = resolutions[c.sessionId]
+      const r = resolutions[c.taskId]
       return {
-        personnelId: c.personnelId,
-        sessionId: c.sessionId,
         taskId: c.taskId,
         isDone: r.isDone!,
         remainingColli: !r.isDone ? Number(r.remainingColli) : undefined,
@@ -82,11 +85,11 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
 
   const texts = {
     nl: {
-      title: 'Vorige taak afsluiten',
-      subtitle: 'Controleer de voortgang voor je doorgaat',
-      taskDone: 'Container volledig afgerond?',
-      yes: 'Ja, volledig klaar',
-      no: 'Nee, nog niet klaar',
+      title: 'Lopende taak afsluiten',
+      subtitle: 'Er is al een actieve taak voor deze medewerker(s)',
+      taskDone: 'Is de taak volledig afgerond?',
+      yes: 'Ja, klaar',
+      no: 'Nee, nog bezig',
       remainingLabel: 'Hoeveel colli zijn er nog over?',
       remainingPlaceholder: 'Aantal colli',
       of: 'van',
@@ -94,14 +97,14 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
       continue: 'Doorgaan',
       cancel: 'Annuleren',
       autoNote: (remaining: number, dept: string) =>
-        `Er wordt automatisch een nieuwe taak van ${remaining} colli aangemaakt voor de andere medewerker(s) in ${dept}.`,
+        `Er wordt automatisch een nieuwe taak van ${remaining} colli aangemaakt voor de overige medewerker(s) in ${dept}.`,
     },
     en: {
-      title: 'Close previous task',
-      subtitle: 'Check progress before continuing',
-      taskDone: 'Container fully completed?',
-      yes: 'Yes, fully done',
-      no: 'No, not yet done',
+      title: 'Close active task',
+      subtitle: 'There is already an active task for these personnel',
+      taskDone: 'Is the task fully completed?',
+      yes: 'Yes, done',
+      no: 'No, still ongoing',
       remainingLabel: 'How many colli are remaining?',
       remainingPlaceholder: 'Colli count',
       of: 'of',
@@ -109,7 +112,7 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
       continue: 'Continue',
       cancel: 'Cancel',
       autoNote: (remaining: number, dept: string) =>
-        `A new ${remaining} colli task will be automatically created for the other worker(s) in ${dept}.`,
+        `A new ${remaining} colli task will be automatically created for other personnel in ${dept}.`,
     },
   }
 
@@ -123,30 +126,40 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
       </div>
 
       {conflicts.map((conflict) => {
-        const r = resolutions[conflict.sessionId]
+        const r = resolutions[conflict.taskId]
         const remaining = Number(r.remainingColli)
         const validRemaining = !isNaN(remaining) && remaining >= 1 && remaining < conflict.colliCount
 
         return (
           <div
-            key={conflict.sessionId}
+            key={conflict.taskId}
             className="rounded-xl border-2 p-4 space-y-4"
             style={{ borderColor: '#80BC17' + '40', backgroundColor: '#80BC17' + '05' }}
           >
-            {/* Person + task info */}
-            <div className="flex items-start gap-3">
-              <span
-                className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5"
-                style={{ backgroundColor: '#80BC17' + '25', color: '#1C7745' }}
-              >
-                {conflict.personnelName.charAt(0).toUpperCase()}
-              </span>
-              <div>
-                <div className="font-semibold text-black">{conflict.personnelName}</div>
-                <div className="text-sm text-gray-600">
-                  {getDepartmentLabel(conflict.department, lang)} · {conflict.colliCount} colli · {conflict.expectedMinutes}m verwacht
+            {/* Personnel avatars */}
+            <div className="flex flex-wrap gap-2">
+              {conflict.sessions.map((session) => (
+                <div key={session.sessionId} className="flex items-center gap-2">
+                  <span
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                    style={{ backgroundColor: '#80BC17' + '25', color: '#1C7745' }}
+                  >
+                    {initials(session.personnelName)}
+                  </span>
+                  <span className="text-sm font-semibold text-black">{session.personnelName}</span>
                 </div>
-              </div>
+              ))}
+            </div>
+
+            {/* Task info */}
+            <div className="flex gap-3 text-sm">
+              <span className="font-medium text-gray-700">
+                {getDepartmentLabel(conflict.department, lang)}
+              </span>
+              <span className="text-gray-400">·</span>
+              <span className="text-gray-600">{conflict.colliCount} colli</span>
+              <span className="text-gray-400">·</span>
+              <span className="text-gray-600">{conflict.expectedMinutes}m</span>
             </div>
 
             {/* Is done question */}
@@ -155,7 +168,7 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsDone(conflict.sessionId, true)}
+                  onClick={() => setIsDone(conflict.taskId, true)}
                   className="flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all"
                   style={
                     r.isDone === true
@@ -167,7 +180,7 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsDone(conflict.sessionId, false)}
+                  onClick={() => setIsDone(conflict.taskId, false)}
                   className="flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all"
                   style={
                     r.isDone === false
@@ -180,7 +193,7 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
               </div>
             </div>
 
-            {/* Remaining colli (only when not done) */}
+            {/* Remaining colli input */}
             {r.isDone === false && (
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-800 block">{tx.remainingLabel}</label>
@@ -191,16 +204,16 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
                     min={1}
                     max={conflict.colliCount - 1}
                     value={r.remainingColli}
-                    onChange={(e) => setRemainingColli(conflict.sessionId, e.target.value)}
+                    onChange={(e) => setRemainingColli(conflict.taskId, e.target.value)}
                     placeholder={tx.remainingPlaceholder}
-                    className="w-32 rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                    className="w-32 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                   />
                   <span className="text-sm text-gray-500">
                     {tx.of} {conflict.colliCount} {tx.colliLeft}
                   </span>
                 </div>
                 {validRemaining && (
-                  <p className="text-xs rounded-lg px-3 py-2" style={{ backgroundColor: '#544CA9' + '10', color: '#544CA9' }}>
+                  <p className="text-xs rounded-xl px-3 py-2.5" style={{ backgroundColor: '#544CA9' + '10', color: '#544CA9' }}>
                     {tx.autoNote(remaining, getDepartmentLabel(conflict.department, lang))}
                   </p>
                 )}
@@ -211,10 +224,10 @@ export function ConflictResolution({ conflicts, onResolved, onCancel }: Conflict
       })}
 
       <div className="flex gap-3 pt-1">
-        <Button onClick={handleSubmit} disabled={!canSubmit} fullWidth size="lg">
+        <Button onClick={handleSubmit} disabled={!canSubmit || submitting} loading={submitting} fullWidth size="lg">
           {tx.continue}
         </Button>
-        <Button variant="secondary" onClick={onCancel} size="lg">
+        <Button variant="secondary" onClick={onCancel} size="lg" disabled={submitting}>
           {tx.cancel}
         </Button>
       </div>

@@ -23,11 +23,11 @@ export async function GET(
         workDate: taskSessions.workDate,
         actualMinutes: sql<number | null>`
           CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60, 1)
+          THEN ROUND((EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60)::numeric, 1)
           ELSE NULL END`,
         performanceDiff: sql<number | null>`
           CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${task.expectedMinutes}, 1)
+          THEN ROUND((EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${task.expectedMinutes})::numeric, 1)
           ELSE NULL END`,
       })
       .from(taskSessions)

@@ -11,6 +11,10 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
 import type { Personnel } from '@/lib/db/schema'
 
+function initials(name: string) {
+  return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+}
+
 export default function PersonnelPage() {
   const { t } = useLanguage()
   const [people, setPeople] = useState<Personnel[]>([])
@@ -28,7 +32,9 @@ export default function PersonnelPage() {
 
   useEffect(() => { load() }, [load])
 
-  const toggleActive = async (person: Personnel) => {
+  const toggleActive = async (e: React.MouseEvent, person: Personnel) => {
+    e.preventDefault()
+    e.stopPropagation()
     setTogglingId(person.id)
     try {
       if (person.isActive) {
@@ -54,13 +60,21 @@ export default function PersonnelPage() {
     )
   }
 
+  const active = people.filter((p) => p.isActive)
+  const inactive = people.filter((p) => !p.isActive)
+
   return (
     <div className="space-y-5">
       <PageHeader
         title={t('personnel.title')}
         action={
           <Link href="/personnel/new">
-            <Button size="md">{t('personnel.addNew')}</Button>
+            <Button size="md">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+              </svg>
+              {t('personnel.addNew')}
+            </Button>
           </Link>
         }
       />
@@ -78,37 +92,104 @@ export default function PersonnelPage() {
           />
         </Card>
       ) : (
-        <div className="space-y-2">
-          {people.map((person) => (
-            <Card key={person.id} padding="sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-gray-900 text-sm">{person.fullName}</span>
-                    <Badge variant={person.isActive ? 'green' : 'gray'}>
-                      {person.isActive ? t('personnel.active') : t('personnel.inactive')}
-                    </Badge>
-                  </div>
-                  {person.notes && (
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{person.notes}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Link href={`/personnel/${person.id}/edit`}>
-                    <Button variant="ghost" size="sm">{t('common.edit')}</Button>
-                  </Link>
-                  <Button
-                    variant={person.isActive ? 'secondary' : 'ghost'}
-                    size="sm"
-                    loading={togglingId === person.id}
-                    onClick={() => toggleActive(person)}
-                  >
-                    {person.isActive ? t('personnel.deactivate') : t('personnel.activate')}
-                  </Button>
-                </div>
+        <div className="space-y-5">
+          {/* Active */}
+          {active.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                  {t('personnel.active')}
+                </h2>
+                <span
+                  className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white"
+                  style={{ backgroundColor: '#80BC17' }}
+                >
+                  {active.length}
+                </span>
               </div>
-            </Card>
-          ))}
+              <div className="space-y-2">
+                {active.map((person) => (
+                  <Link key={person.id} href={`/personnel/${person.id}`} className="block">
+                    <Card padding="sm" className="hover:border-gray-300 transition-colors active:scale-[0.99]">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                          style={{ backgroundColor: '#80BC17' + '20', color: '#1C7745' }}
+                        >
+                          {initials(person.fullName)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 text-sm">{person.fullName}</div>
+                          {person.notes && (
+                            <p className="text-xs text-gray-500 mt-0.5 truncate">{person.notes}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            loading={togglingId === person.id}
+                            onClick={(e) => toggleActive(e, person)}
+                          >
+                            {t('personnel.deactivate')}
+                          </Button>
+                          <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Inactive */}
+          {inactive.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                  {t('personnel.inactive')}
+                </h2>
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[10px] font-bold text-gray-500">
+                  {inactive.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {inactive.map((person) => (
+                  <Link key={person.id} href={`/personnel/${person.id}`} className="block">
+                    <Card padding="sm" className="hover:border-gray-300 transition-colors opacity-60">
+                      <div className="flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500 flex-shrink-0">
+                          {initials(person.fullName)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-700 text-sm">{person.fullName}</div>
+                          {person.notes && (
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">{person.notes}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            loading={togglingId === person.id}
+                            onClick={(e) => toggleActive(e, person)}
+                          >
+                            {t('personnel.activate')}
+                          </Button>
+                          <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

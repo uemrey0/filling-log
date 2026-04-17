@@ -4,6 +4,7 @@ import {
   varchar,
   integer,
   boolean,
+  real,
   text,
   timestamp,
   date,
@@ -50,6 +51,9 @@ export const taskSessions = pgTable(
       .references(() => personnel.id, { onDelete: 'restrict' }),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
+    isPaused: boolean('is_paused').notNull().default(false),
+    pausedSince: timestamp('paused_since', { withTimezone: true }),
+    totalPausedMinutes: real('total_paused_minutes').notNull().default(0),
     workDate: date('work_date').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -59,6 +63,7 @@ export const taskSessions = pgTable(
     index('sessions_task_idx').on(table.taskId),
     index('sessions_work_date_idx').on(table.workDate),
     index('sessions_ended_at_idx').on(table.endedAt),
+    index('sessions_is_paused_idx').on(table.isPaused),
   ],
 )
 
