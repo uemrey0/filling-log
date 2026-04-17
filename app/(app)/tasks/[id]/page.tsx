@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDate, formatDuration } from '@/lib/business'
+import { apiFetch } from '@/lib/api'
 import type { Task } from '@/lib/db/schema'
 
 interface SessionDetail {
@@ -37,7 +38,7 @@ export default function TaskDetailPage() {
 
   const load = async () => {
     try {
-      const res = await fetch(`/api/tasks/${params.id}`)
+      const res = await apiFetch(`/api/tasks/${params.id}`)
       if (res.ok) setData(await res.json())
     } finally {
       setLoading(false)
@@ -49,7 +50,7 @@ export default function TaskDetailPage() {
   const endSession = async (sessionId: string) => {
     setEndingId(sessionId)
     try {
-      await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST', body: '{}' })
+      await apiFetch(`/api/sessions/${sessionId}/end`, { method: 'POST', body: '{}' })
       await load()
     } finally {
       setEndingId(null)

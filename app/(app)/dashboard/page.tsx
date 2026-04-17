@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
-import { getDepartmentLabel } from '@/lib/departments'
-import { formatTime, formatDuration } from '@/lib/business'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
+import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
+import { formatTime, formatDuration, calcExpectedMinutes } from '@/lib/business'
+import { apiFetch } from '@/lib/api'
 
 interface SessionRow {
   sessionId: string
@@ -49,6 +51,7 @@ interface TaskGroup {
   department: string
   colliCount: number
   expectedMinutes: number
+  taskNotes: string | null
   workDate: string
   startedAt: string
   endedAt: string | null
@@ -71,6 +74,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
         department: s.department,
         colliCount: s.colliCount,
         expectedMinutes: s.expectedMinutes,
+        taskNotes: s.taskNotes,
         workDate: s.workDate,
         startedAt: s.startedAt,
         endedAt: s.endedAt,
@@ -212,7 +216,6 @@ function ActiveTaskProgress({
 
   return (
     <div className="space-y-2">
-      {/* Prominent timer */}
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono font-bold text-3xl tabular-nums leading-none" style={{ color: timerColor }}>
           {hStr}{mStr}:{sStr}
@@ -221,7 +224,6 @@ function ActiveTaskProgress({
           / {expectedMinutes}m
         </span>
       </div>
-      {/* Progress bar */}
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-1000"
@@ -236,18 +238,31 @@ function ActiveTaskProgress({
   )
 }
 
+interface EditTaskState {
+  taskId: string
+  department: string
+  colliCount: number
+  notes: string
+  personnelCount: number
+}
+
 export default function DashboardPage() {
   const { t, lang } = useLanguage()
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
+  const [editState, setEditState] = useState<EditTaskState | null>(null)
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks?today=true')
+      const res = await apiFetch('/api/tasks?today=true')
       if (res.ok) {
-        setSessions(await res.json())
+        const data = await res.json()
+        setSessions(data.sessions ?? data)
         setLoadError(null)
       } else {
         const data = await res.json().catch(() => ({}))
@@ -269,10 +284,52 @@ export default function DashboardPage() {
   const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
     setActionId(taskId + action)
     try {
-      await fetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
+      await apiFetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
       await load()
     } finally {
       setActionId(null)
+    }
+  }
+
+  const openEdit = (group: TaskGroup) => {
+    setEditState({
+      taskId: group.taskId,
+      department: group.department,
+      colliCount: group.colliCount,
+      notes: group.taskNotes ?? '',
+      personnelCount: group.personnel.filter((p) => !p.endedAt).length,
+    })
+  }
+
+  const saveEdit = async () => {
+    if (!editState) return
+    setEditSaving(true)
+    try {
+      await apiFetch(`/api/tasks/${editState.taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          department: editState.department,
+          colliCount: editState.colliCount,
+          notes: editState.notes || null,
+        }),
+      })
+      setEditState(null)
+      await load()
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTaskId) return
+    setDeletingId(deleteTaskId)
+    setDeleteTaskId(null)
+    try {
+      await apiFetch(`/api/tasks/${deleteTaskId}`, { method: 'DELETE' })
+      await load()
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -309,9 +366,12 @@ export default function DashboardPage() {
     )
   }
 
+  const editExpected = editState
+    ? calcExpectedMinutes(editState.colliCount, Math.max(editState.personnelCount, 1))
+    : 0
+
   return (
     <div className="space-y-6">
-
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -405,18 +465,48 @@ export default function DashboardPage() {
                   style={{ backgroundColor: group.isPaused ? '#D1D5DB' : '#80BC17' }}
                 />
                 <div className="px-4 pt-3 pb-4 space-y-3">
-                  {/* Row 1: Names + status badge */}
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="font-bold text-gray-900 text-base leading-snug flex-1 min-w-0">
-                      {group.personnel.map((p) => p.personnelName).join(' · ')}
-                    </span>
-                    {group.isPaused ? (
-                      <Badge variant="orange" className="flex-shrink-0 mt-0.5">
-                        {lang === 'nl' ? 'Gepauzeerd' : 'Paused'}
-                      </Badge>
-                    ) : (
-                      <Badge variant="green" className="flex-shrink-0 mt-0.5">{t('tasks.active')}</Badge>
-                    )}
+                  {/* Row 1: Names + status badge + action buttons */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-gray-900 text-base leading-snug">
+                        {group.personnel.map((p) => p.personnelName).join(' · ')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {group.isPaused ? (
+                        <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
+                      ) : (
+                        <Badge variant="green">{t('tasks.active')}</Badge>
+                      )}
+                      {/* Edit button */}
+                      <button
+                        onClick={() => openEdit(group)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                        title={t('tasks.editTask')}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      {/* Delete button */}
+                      <button
+                        onClick={() => setDeleteTaskId(group.taskId)}
+                        disabled={deletingId === group.taskId}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+                        title={t('tasks.deleteTask')}
+                      >
+                        {deletingId === group.taskId ? (
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Row 2: Task details */}
@@ -551,6 +641,71 @@ export default function DashboardPage() {
           />
         </Card>
       )}
+
+      {/* Edit Task Modal */}
+      <ModalOrSheet open={!!editState} onClose={() => setEditState(null)}>
+        {editState && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold text-gray-900">{t('tasks.editTask')}</h2>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.department')}</label>
+              <select
+                value={editState.department}
+                onChange={(e) => setEditState((s) => s ? { ...s, department: e.target.value } : s)}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                {DEPARTMENT_KEYS.map((k) => (
+                  <option key={k} value={k}>{getDepartmentLabel(k, lang)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.colliCount')}</label>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                value={editState.colliCount}
+                onChange={(e) => setEditState((s) => s ? { ...s, colliCount: parseInt(e.target.value) || 1 } : s)}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                {lang === 'nl' ? 'Verwacht' : 'Expected'}: {editExpected}m
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.notes')}</label>
+              <textarea
+                rows={2}
+                value={editState.notes}
+                onChange={(e) => setEditState((s) => s ? { ...s, notes: e.target.value } : s)}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                placeholder={t('taskForm.notesPlaceholder')}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <Button onClick={saveEdit} loading={editSaving} className="flex-1">{t('common.save')}</Button>
+              <Button variant="secondary" onClick={() => setEditState(null)} className="flex-1">{t('common.cancel')}</Button>
+            </div>
+          </div>
+        )}
+      </ModalOrSheet>
+
+      {/* Delete Confirm Modal */}
+      <ModalOrSheet open={!!deleteTaskId} onClose={() => setDeleteTaskId(null)}>
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.deleteTask')}</h2>
+          <p className="text-sm text-gray-600">{t('tasks.confirmDelete')}</p>
+          <div className="flex gap-3">
+            <Button variant="danger" onClick={confirmDelete} className="flex-1">{t('common.delete')}</Button>
+            <Button variant="secondary" onClick={() => setDeleteTaskId(null)} className="flex-1">{t('common.cancel')}</Button>
+          </div>
+        </div>
+      </ModalOrSheet>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
@@ -10,8 +10,10 @@ import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDate, formatDuration } from '@/lib/business'
+import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
 interface SessionDetail {
@@ -27,26 +29,125 @@ interface SessionDetail {
   performanceDiff: number | null
 }
 
-interface PersonnelDetail extends Personnel {
-  sessions: SessionDetail[]
+interface PeriodStats {
+  totalSessions: number
+  avgDiff: number | null
+  avgActualPerColli: number | null
 }
+
+interface PersonnelData extends Personnel {
+  sessions: SessionDetail[]
+  total: number
+  page: number
+  limit: number
+  stats: PeriodStats
+  prevStats: PeriodStats | null
+}
+
+type Preset = '7d' | '14d' | '30d' | '90d' | 'all' | 'custom'
 
 function initials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
+function getPresetRange(preset: Preset, customFrom: string, customTo: string): { dateFrom: string; dateTo: string } | null {
+  if (preset === 'all') return null
+  if (preset === 'custom') {
+    return customFrom && customTo ? { dateFrom: customFrom, dateTo: customTo } : null
+  }
+  const days = preset === '7d' ? 7 : preset === '14d' ? 14 : preset === '30d' ? 30 : 90
+  const now = new Date()
+  const to = now.toISOString().slice(0, 10)
+  const from = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10)
+  return { dateFrom: from, dateTo: to }
+}
+
+function ComparisonBadge({ current, prev, lang }: { current: number | null; prev: number | null; lang: string }) {
+  if (current === null || prev === null || prev === 0) return null
+  const pct = Math.round(((current - prev) / Math.abs(prev)) * 100)
+  const improved = pct < 0
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full"
+      style={{
+        backgroundColor: improved ? '#80BC1720' : '#E40B1720',
+        color: improved ? '#1C7745' : '#E40B17',
+      }}
+    >
+      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d={improved ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7'} />
+      </svg>
+      {Math.abs(pct)}%
+    </span>
+  )
+}
+
 export default function PersonnelDetailPage() {
   const { t, lang } = useLanguage()
   const params = useParams<{ id: string }>()
-  const [data, setData] = useState<PersonnelDetail | null>(null)
+
+  const [data, setData] = useState<PersonnelData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  const [preset, setPreset] = useState<Preset>('7d')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+
+  const [appliedPreset, setAppliedPreset] = useState<Preset>('7d')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
+
+  const PAGE_SIZE = 20
+
+  const buildUrl = useCallback((p: number, ap: Preset, af: string, at: string) => {
+    const range = getPresetRange(ap, af, at)
+    const params2 = new URLSearchParams()
+    params2.set('page', String(p))
+    params2.set('limit', String(PAGE_SIZE))
+    if (range) {
+      params2.set('dateFrom', range.dateFrom)
+      params2.set('dateTo', range.dateTo)
+    }
+    return `/api/personnel/${params.id}?${params2}`
+  }, [params.id])
+
+  const load = useCallback(async (ap: Preset, af: string, at: string) => {
+    setLoading(true)
+    try {
+      const res = await apiFetch(buildUrl(1, ap, af, at))
+      if (res.ok) setData(await res.json())
+    } finally {
+      setLoading(false)
+    }
+  }, [buildUrl])
 
   useEffect(() => {
-    fetch(`/api/personnel/${params.id}`)
-      .then((r) => r.json())
-      .then(setData)
-      .finally(() => setLoading(false))
-  }, [params.id])
+    load(appliedPreset, appliedFrom, appliedTo)
+  }, [load, appliedPreset, appliedFrom, appliedTo])
+
+  const applyFilters = () => {
+    setAppliedPreset(preset)
+    setAppliedFrom(customFrom)
+    setAppliedTo(customTo)
+    setShowFilters(false)
+  }
+
+  const loadMore = async () => {
+    if (!data) return
+    const nextPage = data.page + 1
+    setLoadingMore(true)
+    try {
+      const res = await apiFetch(buildUrl(nextPage, appliedPreset, appliedFrom, appliedTo))
+      if (res.ok) {
+        const next: PersonnelData = await res.json()
+        setData((prev) => prev ? { ...next, sessions: [...prev.sessions, ...next.sessions] } : next)
+      }
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   if (loading) {
     return <div className="flex justify-center py-20"><Spinner size="lg" className="text-primary" /></div>
@@ -56,18 +157,12 @@ export default function PersonnelDetailPage() {
     return <div className="text-center py-20 text-gray-500">{t('common.noResults')}</div>
   }
 
+  const { stats, prevStats } = data
+
   const completed = data.sessions.filter((s) => s.endedAt && s.performanceDiff !== null)
   const active = data.sessions.filter((s) => !s.endedAt)
 
-  const avgDiff = completed.length > 0
-    ? completed.reduce((sum, s) => sum + Number(s.performanceDiff!), 0) / completed.length
-    : null
-
-  const avgActual = completed.length > 0
-    ? completed.reduce((sum, s) => sum + Number(s.actualMinutes!), 0) / completed.length
-    : null
-
-  // Department breakdown
+  // Department breakdown from loaded sessions (all visible sessions)
   const deptMap = new Map<string, { count: number; totalDiff: number }>()
   for (const s of completed) {
     const existing = deptMap.get(s.department)
@@ -81,6 +176,24 @@ export default function PersonnelDetailPage() {
   const deptStats = Array.from(deptMap.entries())
     .map(([dept, { count, totalDiff }]) => ({ dept, count, avgDiff: totalDiff / count }))
     .sort((a, b) => b.count - a.count)
+
+  const PRESETS: { key: Preset; label: string }[] = [
+    { key: '7d', label: t('personnel.last7d') },
+    { key: '14d', label: t('personnel.last14d') },
+    { key: '30d', label: t('personnel.last30d') },
+    { key: '90d', label: t('personnel.last90d') },
+    { key: 'all', label: t('personnel.allTime') },
+    { key: 'custom', label: t('personnel.customRange') },
+  ]
+
+  const activeRange = getPresetRange(appliedPreset, appliedFrom, appliedTo)
+  const rangeLabel = appliedPreset === 'all'
+    ? t('personnel.allTime')
+    : appliedPreset === 'custom' && activeRange
+      ? `${activeRange.dateFrom} – ${activeRange.dateTo}`
+      : PRESETS.find((p) => p.key === appliedPreset)?.label ?? ''
+
+  const hasMore = data.sessions.length < data.total
 
   return (
     <div className="space-y-5">
@@ -138,19 +251,70 @@ export default function PersonnelDetailPage() {
         </Card>
       )}
 
+      {/* Filter bar */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
+          {/* Preset pills – hidden on small screens, visible on sm+ */}
+          <div className="hidden sm:flex gap-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => {
+                  setAppliedPreset(p.key)
+                  setAppliedFrom('')
+                  setAppliedTo('')
+                  setPreset(p.key)
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors"
+                style={
+                  appliedPreset === p.key
+                    ? { backgroundColor: '#80BC17', color: '#fff' }
+                    : { backgroundColor: '#F3F4F6', color: '#374151' }
+                }
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {/* Mobile: show current range label */}
+          <span className="sm:hidden text-sm font-medium text-gray-700">{rangeLabel}</span>
+        </div>
+        {/* Filter button – mobile opens bottom sheet, desktop opens sheet too for custom */}
+        <button
+          onClick={() => setShowFilters(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+          </svg>
+          {t('personnel.filters')}
+        </button>
+      </div>
+
       {/* Stats overview */}
       <div className="grid grid-cols-2 gap-3">
         <Card padding="sm" className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{completed.length}</div>
+          <div className="text-2xl font-bold text-gray-900">{stats.totalSessions}</div>
           <div className="text-xs text-gray-500 mt-0.5">{t('personnel.totalTasks')}</div>
+          {prevStats && (
+            <div className="mt-1 flex justify-center">
+              <ComparisonBadge current={stats.totalSessions} prev={prevStats.totalSessions} lang={lang} />
+            </div>
+          )}
         </Card>
+
         <Card padding="sm" className="text-center">
-          {avgDiff !== null ? (
+          {stats.avgDiff !== null ? (
             <>
               <div className="flex justify-center mb-0.5">
-                <PerformanceDiff diffMinutes={avgDiff} />
+                <PerformanceDiff diffMinutes={Number(stats.avgDiff)} />
               </div>
               <div className="text-xs text-gray-500">{t('analytics.avgDifference')}</div>
+              {prevStats?.avgDiff !== null && prevStats !== null && (
+                <div className="mt-1 flex justify-center">
+                  <ComparisonBadge current={Number(stats.avgDiff)} prev={Number(prevStats.avgDiff)} lang={lang} />
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -159,20 +323,22 @@ export default function PersonnelDetailPage() {
             </>
           )}
         </Card>
-        {avgActual !== null && (
-          <Card padding="sm" className="text-center">
-            <div className="text-xl font-bold text-gray-900">{formatDuration(avgActual)}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{t('analytics.avgActual')}</div>
-          </Card>
-        )}
-        {deptStats.length > 0 && (
-          <Card padding="sm" className="text-center">
-            <div className="text-sm font-bold text-gray-900 truncate">
-              {getDepartmentLabel(deptStats[0].dept, lang)}
+
+        {stats.avgActualPerColli !== null && (
+          <Card padding="sm" className="text-center col-span-2">
+            <div className="text-xl font-bold text-gray-900">
+              {formatDuration(Number(stats.avgActualPerColli))}
             </div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              {lang === 'nl' ? 'Meeste taken' : 'Most tasks'}
-            </div>
+            <div className="text-xs text-gray-500 mt-0.5">{t('personnel.avgPerColli')}</div>
+            {prevStats?.avgActualPerColli !== null && prevStats !== null && (
+              <div className="mt-1 flex justify-center">
+                <ComparisonBadge
+                  current={Number(stats.avgActualPerColli)}
+                  prev={Number(prevStats.avgActualPerColli)}
+                  lang={lang}
+                />
+              </div>
+            )}
           </Card>
         )}
       </div>
@@ -206,45 +372,104 @@ export default function PersonnelDetailPage() {
         </h2>
         {completed.length === 0 ? (
           <Card>
-            <EmptyState title={t('personnel.noHistory')} />
+            <EmptyState title={stats.totalSessions === 0 ? t('personnel.noDataForPeriod') : t('personnel.noHistory')} />
           </Card>
         ) : (
-          <Card padding="none">
-            <div className="divide-y divide-gray-100">
-              {completed.slice(0, 30).map((s) => {
-                const perfColor =
-                  s.performanceDiff === null ? '#D1D5DB'
-                  : Number(s.performanceDiff) <= 0 ? '#80BC17'
-                  : '#E40B17'
+          <>
+            <Card padding="none">
+              <div className="divide-y divide-gray-100">
+                {completed.map((s) => {
+                  const perfColor =
+                    s.performanceDiff === null ? '#D1D5DB'
+                    : Number(s.performanceDiff) <= 0 ? '#80BC17'
+                    : '#E40B17'
 
-                return (
-                  <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: perfColor }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900">
-                        {getDepartmentLabel(s.department, lang)}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {formatDate(s.workDate)} · {s.colliCount} colli · {formatTime(s.startedAt)}–{s.endedAt ? formatTime(s.endedAt) : '–'}
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      {s.actualMinutes !== null && (
-                        <div className="text-xs font-medium text-gray-700 tabular-nums mb-0.5">
-                          {formatDuration(Number(s.actualMinutes))}
+                  return (
+                    <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: perfColor }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-900">
+                          {getDepartmentLabel(s.department, lang)}
                         </div>
-                      )}
-                      {s.performanceDiff !== null && (
-                        <PerformanceDiff diffMinutes={Number(s.performanceDiff)} />
-                      )}
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {formatDate(s.workDate)} · {s.colliCount} colli · {formatTime(s.startedAt)}–{s.endedAt ? formatTime(s.endedAt) : '–'}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        {s.actualMinutes !== null && (
+                          <div className="text-xs font-medium text-gray-700 tabular-nums mb-0.5">
+                            {formatDuration(Number(s.actualMinutes))}
+                          </div>
+                        )}
+                        {s.performanceDiff !== null && (
+                          <PerformanceDiff diffMinutes={Number(s.performanceDiff)} />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
+                  )
+                })}
+              </div>
+            </Card>
+
+            {hasMore && (
+              <div className="mt-3 flex justify-center">
+                <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>
+                  {t('common.loadMore')} ({data.total - data.sessions.length})
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Filter Sheet */}
+      <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900">{t('personnel.filters')}</h2>
+
+          <div className="grid grid-cols-3 gap-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPreset(p.key)}
+                className="py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                style={
+                  preset === p.key
+                    ? { backgroundColor: '#80BC17', color: '#fff' }
+                    : { backgroundColor: '#F3F4F6', color: '#374151' }
+                }
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {preset === 'custom' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+          )}
+
+          <Button onClick={applyFilters} className="w-full">{t('analytics.apply')}</Button>
+        </div>
+      </ModalOrSheet>
     </div>
   )
 }

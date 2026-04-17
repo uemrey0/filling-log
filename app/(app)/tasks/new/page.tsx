@@ -14,6 +14,7 @@ import { PersonnelCombobox, type PersonnelChip } from '@/components/ui/Personnel
 import { ConflictResolution, type ConflictInfo, type ConflictResolutionResult } from '@/components/ui/ConflictResolution'
 import { DEPARTMENT_KEYS, getDepartmentLabel } from '@/lib/departments'
 import { calcExpectedMinutes } from '@/lib/business'
+import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
 export default function NewTaskPage() {
@@ -41,7 +42,7 @@ export default function NewTaskPage() {
 
   const loadPersonnel = useCallback(async () => {
     try {
-      const res = await fetch('/api/personnel?active=true')
+      const res = await apiFetch('/api/personnel?active=true')
       if (res.ok) setPersonnel(await res.json())
     } catch { /* ignore */ }
   }, [])
@@ -49,7 +50,7 @@ export default function NewTaskPage() {
   useEffect(() => { loadPersonnel() }, [loadPersonnel])
 
   const handleAddNew = async (name: string): Promise<PersonnelChip> => {
-    const res = await fetch('/api/personnel', {
+    const res = await apiFetch('/api/personnel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fullName: name, isActive: true }),
@@ -77,7 +78,7 @@ export default function NewTaskPage() {
     setCheckingConflicts(true)
     try {
       const ids = selectedPersonnel.map((p) => p.id).join(',')
-      const res = await fetch(`/api/tasks/conflicts?personnelIds=${ids}`)
+      const res = await apiFetch(`/api/tasks/conflicts?personnelIds=${ids}`)
       if (!res.ok) throw new Error()
       const found: ConflictInfo[] = await res.json()
 
@@ -102,7 +103,7 @@ export default function NewTaskPage() {
   const submitTask = async (resolvedConflicts: ConflictResolutionResult[]) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await apiFetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
 function initials(name: string) {
@@ -20,10 +20,11 @@ export default function PersonnelPage() {
   const [people, setPeople] = useState<Personnel[]>([])
   const [loading, setLoading] = useState(true)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/personnel')
+      const res = await apiFetch('/api/personnel')
       if (res.ok) setPeople(await res.json())
     } finally {
       setLoading(false)
@@ -38,9 +39,9 @@ export default function PersonnelPage() {
     setTogglingId(person.id)
     try {
       if (person.isActive) {
-        await fetch(`/api/personnel/${person.id}`, { method: 'DELETE' })
+        await apiFetch(`/api/personnel/${person.id}`, { method: 'DELETE' })
       } else {
-        await fetch(`/api/personnel/${person.id}`, {
+        await apiFetch(`/api/personnel/${person.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fullName: person.fullName, isActive: true, notes: person.notes }),
@@ -60,8 +61,13 @@ export default function PersonnelPage() {
     )
   }
 
-  const active = people.filter((p) => p.isActive)
-  const inactive = people.filter((p) => !p.isActive)
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? people.filter((p) => p.fullName.toLowerCase().includes(q))
+    : people
+
+  const active = filtered.filter((p) => p.isActive)
+  const inactive = filtered.filter((p) => !p.isActive)
 
   return (
     <div className="space-y-5">
@@ -79,6 +85,22 @@ export default function PersonnelPage() {
         }
       />
 
+      {/* Search */}
+      {people.length > 0 && (
+        <div className="relative">
+          <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('personnel.searchPlaceholder')}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          />
+        </div>
+      )}
+
       {people.length === 0 ? (
         <Card>
           <EmptyState
@@ -90,6 +112,10 @@ export default function PersonnelPage() {
               </Link>
             }
           />
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <EmptyState title={t('common.noResults')} />
         </Card>
       ) : (
         <div className="space-y-5">

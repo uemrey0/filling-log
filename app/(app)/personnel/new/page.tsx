@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card } from '@/components/ui/Card'
+import { apiFetch } from '@/lib/api'
 
 export default function NewPersonnelPage() {
   const { t } = useLanguage()
@@ -24,7 +25,7 @@ export default function NewPersonnelPage() {
     setErrors({})
     setLoading(true)
     try {
-      const res = await fetch('/api/personnel', {
+      const res = await apiFetch('/api/personnel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: form.fullName.trim(), isActive: true, notes: form.notes.trim() || null }),

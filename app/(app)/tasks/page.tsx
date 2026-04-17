@@ -12,6 +12,9 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDuration, formatDate } from '@/lib/business'
+import { apiFetch } from '@/lib/api'
+
+const PAGE_SIZE = 20
 
 interface SessionRow {
   sessionId: string
@@ -114,37 +117,64 @@ export default function TasksPage() {
   const { t, lang } = useLanguage()
   const [today] = useState(getTodayLocalDate)
 
-  const [sessions, setSessions] = useState<SessionRow[]>([])
+  const [allSessions, setAllSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
   const [dateFrom, setDateFrom] = useState(today)
   const [dateTo, setDateTo] = useState(today)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (p: number, replace: boolean) => {
     const params = new URLSearchParams()
     if (dateFrom) params.set('dateFrom', dateFrom)
     if (dateTo) params.set('dateTo', dateTo)
+    params.set('page', String(p))
+    params.set('pageSize', String(PAGE_SIZE))
     try {
-      const res = await fetch(`/api/tasks?${params}`)
-      if (res.ok) setSessions(await res.json())
+      const res = await apiFetch(`/api/tasks?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        const sessions: SessionRow[] = data.sessions ?? []
+        setTotal(data.total ?? sessions.length)
+        setPage(data.page ?? p)
+        if (replace) {
+          setAllSessions(sessions)
+        } else {
+          setAllSessions((prev) => [...prev, ...sessions])
+        }
+      }
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }, [dateFrom, dateTo])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    setLoading(true)
+    setAllSessions([])
+    setPage(1)
+    load(1, true)
+  }, [load])
 
   const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
     setActionId(taskId + action)
     try {
-      await fetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
-      await load()
+      await apiFetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
+      await load(1, true)
     } finally {
       setActionId(null)
     }
   }
 
-  const taskGroups = groupByTask(sessions)
+  const loadMore = () => {
+    setLoadingMore(true)
+    load(page + 1, false)
+  }
+
+  const taskGroups = groupByTask(allSessions)
+  const hasMore = allSessions.length < total
 
   if (loading) {
     return (
@@ -191,7 +221,7 @@ export default function TasksPage() {
               className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
             />
           </div>
-          {(dateFrom || dateTo) && (
+          {(dateFrom !== today || dateTo !== today) && (
             <div className="flex items-end">
               <Button
                 variant="ghost"
@@ -218,96 +248,106 @@ export default function TasksPage() {
           />
         </Card>
       ) : (
-        <div className="space-y-2">
-          {taskGroups.map((group) => {
-            const perfColor =
-              group.avgPerformanceDiff === null || group.isActive ? undefined
-              : group.avgPerformanceDiff <= 0 ? '#80BC17'
-              : '#E40B17'
+        <>
+          <div className="space-y-2">
+            {taskGroups.map((group) => {
+              const perfColor =
+                group.avgPerformanceDiff === null || group.isActive ? undefined
+                : group.avgPerformanceDiff <= 0 ? '#80BC17'
+                : '#E40B17'
 
-            const personnelNames = group.personnel.map((p) => p.personnelName).join(', ')
+              const personnelNames = group.personnel.map((p) => p.personnelName).join(', ')
 
-            return (
-              <Card key={group.taskId} padding="none" className="overflow-hidden">
-                <div className="flex">
-                  <div
-                    className="w-1 flex-shrink-0 self-stretch"
-                    style={{ backgroundColor: group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB') }}
-                  />
-                  <div className="flex-1 flex items-start justify-between gap-3 px-3 py-3 min-w-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <span className="font-semibold text-black text-sm truncate max-w-[200px]">{personnelNames}</span>
-                        {group.isActive ? (
-                          group.isPaused
-                            ? <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
-                            : <Badge variant="green">{t('tasks.active')}</Badge>
-                        ) : (
-                          <Badge variant="gray">{t('tasks.completed')}</Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500 mb-1.5">
-                        {getDepartmentLabel(group.department, lang)} · {group.colliCount} {t('tasks.colli')}
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
-                        <span>{formatDate(group.workDate)}</span>
-                        <span className="tabular-nums">
-                          {formatTime(group.startedAt)}{group.endedAt ? ` – ${formatTime(group.endedAt)}` : ''}
-                        </span>
-                        <span>{t('tasks.expected')}: {group.expectedMinutes}m</span>
-                        {!group.isActive && group.personnel[0]?.actualMinutes !== null && (
-                          <span>{t('tasks.actual')}: {formatDuration(
-                            group.personnel.reduce((sum, p) => sum + (p.actualMinutes ?? 0), 0) / group.personnel.filter(p => p.actualMinutes !== null).length
-                          )}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                      {group.avgPerformanceDiff !== null && !group.isActive && (
-                        <PerformanceDiff diffMinutes={group.avgPerformanceDiff} />
-                      )}
-                      {group.isActive && (
-                        <div className="flex gap-1.5">
-                          {group.isPaused ? (
-                            <Button
-                              size="sm"
-                              loading={actionId === group.taskId + 'resume'}
-                              onClick={() => doAction(group.taskId, 'resume')}
-                            >
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </Button>
+              return (
+                <Card key={group.taskId} padding="none" className="overflow-hidden">
+                  <div className="flex">
+                    <div
+                      className="w-1 flex-shrink-0 self-stretch"
+                      style={{ backgroundColor: group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB') }}
+                    />
+                    <div className="flex-1 flex items-start justify-between gap-3 px-3 py-3 min-w-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="font-semibold text-black text-sm truncate max-w-[200px]">{personnelNames}</span>
+                          {group.isActive ? (
+                            group.isPaused
+                              ? <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
+                              : <Badge variant="green">{t('tasks.active')}</Badge>
                           ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              loading={actionId === group.taskId + 'pause'}
-                              onClick={() => doAction(group.taskId, 'pause')}
-                            >
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                              </svg>
-                            </Button>
+                            <Badge variant="gray">{t('tasks.completed')}</Badge>
                           )}
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            loading={actionId === group.taskId + 'end'}
-                            onClick={() => doAction(group.taskId, 'end')}
-                          >
-                            {t('dashboard.endTask')}
-                          </Button>
                         </div>
-                      )}
+                        <div className="text-xs text-gray-500 mb-1.5">
+                          {getDepartmentLabel(group.department, lang)} · {group.colliCount} {t('tasks.colli')}
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
+                          <span>{formatDate(group.workDate)}</span>
+                          <span className="tabular-nums">
+                            {formatTime(group.startedAt)}{group.endedAt ? ` – ${formatTime(group.endedAt)}` : ''}
+                          </span>
+                          <span>{t('tasks.expected')}: {group.expectedMinutes}m</span>
+                          {!group.isActive && group.personnel[0]?.actualMinutes !== null && (
+                            <span>{t('tasks.actual')}: {formatDuration(
+                              group.personnel.reduce((sum, p) => sum + (p.actualMinutes ?? 0), 0) / group.personnel.filter(p => p.actualMinutes !== null).length
+                            )}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                        {group.avgPerformanceDiff !== null && !group.isActive && (
+                          <PerformanceDiff diffMinutes={group.avgPerformanceDiff} />
+                        )}
+                        {group.isActive && (
+                          <div className="flex gap-1.5">
+                            {group.isPaused ? (
+                              <Button
+                                size="sm"
+                                loading={actionId === group.taskId + 'resume'}
+                                onClick={() => doAction(group.taskId, 'resume')}
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M8 5v14l11-7z" />
+                                </svg>
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                loading={actionId === group.taskId + 'pause'}
+                                onClick={() => doAction(group.taskId, 'pause')}
+                              >
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                                </svg>
+                              </Button>
+                            )}
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              loading={actionId === group.taskId + 'end'}
+                              onClick={() => doAction(group.taskId, 'end')}
+                            >
+                              {t('dashboard.endTask')}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Card>
-            )
-          })}
-        </div>
+                </Card>
+              )
+            })}
+          </div>
+
+          {hasMore && (
+            <div className="flex justify-center pt-1">
+              <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>
+                {t('common.loadMore')} ({total - allSessions.length})
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

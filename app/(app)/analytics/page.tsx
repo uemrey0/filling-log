@@ -7,25 +7,16 @@ import { Card } from '@/components/ui/Card'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
-import { PersonnelSearchSelect } from '@/components/ui/PersonnelSearchSelect'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatDuration, formatDate } from '@/lib/business'
-import type { Personnel } from '@/lib/db/schema'
+import { apiFetch } from '@/lib/api'
 
 interface OverviewStats {
   totalSessions: number
   avgExpectedMinutes: number
   avgActualMinutes: number
   avgDiffMinutes: number
-}
-
-interface PersonnelStat {
-  personnelId: string
-  personnelName: string
-  sessionCount: number
-  avgExpected: number
-  avgActual: number
-  avgDiff: number
 }
 
 interface DepartmentStat {
@@ -44,7 +35,6 @@ interface DailyStat {
 
 interface AnalyticsData {
   overview: OverviewStats
-  byPersonnel: PersonnelStat[]
   byDepartment: DepartmentStat[]
   daily: DailyStat[]
 }
@@ -55,7 +45,6 @@ function getDefaultDateRange() {
   const thirtyDaysAgoDate = new Date(now)
   thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30)
   const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().slice(0, 10)
-
   return { today, thirtyDaysAgo }
 }
 
@@ -63,14 +52,13 @@ export default function AnalyticsPage() {
   const { t, lang } = useLanguage()
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [personnel, setPersonnel] = useState<Personnel[]>([])
+  const [showFilters, setShowFilters] = useState(false)
 
   const [{ today, thirtyDaysAgo }] = useState(getDefaultDateRange)
 
   const [filters, setFilters] = useState({
     dateFrom: thirtyDaysAgo,
     dateTo: today,
-    personnelId: '',
     department: '',
   })
 
@@ -78,41 +66,33 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     let cancelled = false
-
     const load = async () => {
+      setLoading(true)
       try {
         const params = new URLSearchParams()
         if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
         if (applied.dateTo) params.set('dateTo', applied.dateTo)
-        if (applied.personnelId) params.set('personnelId', applied.personnelId)
         if (applied.department) params.set('department', applied.department)
-        const res = await fetch(`/api/analytics?${params}`)
+        const res = await apiFetch(`/api/analytics?${params}`)
         if (!cancelled && res.ok) setData(await res.json())
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
-
     void load()
     return () => { cancelled = true }
   }, [applied])
 
-  useEffect(() => {
-    fetch('/api/personnel')
-      .then((r) => r.json())
-      .then(setPersonnel)
-      .catch(() => {})
-  }, [])
-
   const handleApply = () => {
-    setLoading(true)
     setApplied({ ...filters })
+    setShowFilters(false)
   }
+
   const handleReset = () => {
-    setLoading(true)
-    const reset = { dateFrom: thirtyDaysAgo, dateTo: today, personnelId: '', department: '' }
+    const reset = { dateFrom: thirtyDaysAgo, dateTo: today, department: '' }
     setFilters(reset)
     setApplied(reset)
+    setShowFilters(false)
   }
 
   const departmentOptions = [
@@ -120,63 +100,48 @@ export default function AnalyticsPage() {
     ...DEPARTMENT_KEYS.map((k) => ({ value: k, label: getDepartmentLabel(k, lang) })),
   ]
 
+  // Active filter summary for display
+  const hasActiveFilter = applied.department || applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today
+
   return (
     <div className="space-y-5">
-      <PageHeader title={t('analytics.title')} />
+      <PageHeader
+        title={t('analytics.title')}
+        action={
+          <button
+            onClick={() => setShowFilters(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors"
+            style={
+              hasActiveFilter
+                ? { backgroundColor: '#80BC17', color: '#fff', borderColor: '#80BC17' }
+                : { backgroundColor: '#fff', color: '#374151', borderColor: '#E5E7EB' }
+            }
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+            </svg>
+            {t('common.filters')}
+          </button>
+        }
+      />
 
-      {/* Filters */}
-      <Card padding="md">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">{t('analytics.filters')}</h2>
-        <div className="space-y-3 min-w-0">
-          {/* Date range - stacked on mobile */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="min-w-0">
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-            </div>
-            <div className="min-w-0">
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-            </div>
-          </div>
-
-          {/* Personnel search */}
-          <PersonnelSearchSelect
-            personnel={personnel}
-            value={filters.personnelId}
-            onChange={(id) => setFilters((f) => ({ ...f, personnelId: id }))}
-            label={t('analytics.allPersonnel')}
-            allLabel={t('analytics.allPersonnel')}
-          />
-
-          {/* Department */}
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.allDepartments')}</label>
-            <select
-              value={filters.department}
-              onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            >
-              {departmentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3 pt-1">
-            <Button onClick={handleApply} className="w-full sm:w-auto">{t('analytics.apply')}</Button>
-            <Button variant="secondary" onClick={handleReset} className="w-full sm:w-auto">{t('analytics.reset')}</Button>
-          </div>
+      {/* Active filter chips */}
+      {hasActiveFilter && (
+        <div className="flex flex-wrap gap-2">
+          {applied.department && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
+              {getDepartmentLabel(applied.department, lang)}
+              <button onClick={() => { setFilters((f) => ({ ...f, department: '' })); setApplied((a) => ({ ...a, department: '' })) }} className="text-gray-400 hover:text-gray-700">×</button>
+            </span>
+          )}
+          {(applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today) && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
+              {applied.dateFrom} – {applied.dateTo}
+              <button onClick={() => { const d = { dateFrom: thirtyDaysAgo, dateTo: today }; setFilters((f) => ({ ...f, ...d })); setApplied((a) => ({ ...a, ...d })) }} className="text-gray-400 hover:text-gray-700">×</button>
+            </span>
+          )}
         </div>
-      </Card>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -218,38 +183,6 @@ export default function AnalyticsPage() {
               </Card>
             </div>
           </div>
-
-          {/* By personnel */}
-          {data.byPersonnel.length > 0 && (
-            <div>
-              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
-                {t('analytics.byPersonnel')}
-              </h2>
-              <Card padding="none">
-                <div className="divide-y divide-gray-100">
-                  {data.byPersonnel.map((row) => (
-                    <div key={row.personnelId} className="flex items-center justify-between px-4 py-3 gap-3">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <span
-                          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                          style={{ backgroundColor: '#80BC17' + '20', color: '#1C7745' }}
-                        >
-                          {row.personnelName.charAt(0).toUpperCase()}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm text-gray-900 truncate">{row.personnelName}</div>
-                          <div className="text-xs text-gray-500">
-                            {row.sessionCount} {t('analytics.sessionCount')} · {formatDuration(Number(row.avgActual))}
-                          </div>
-                        </div>
-                      </div>
-                      <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </div>
-          )}
 
           {/* By department */}
           {data.byDepartment.length > 0 && (
@@ -300,6 +233,50 @@ export default function AnalyticsPage() {
           )}
         </>
       )}
+
+      {/* Filter Sheet */}
+      <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900">{t('analytics.filters')}</h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
+              <input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.allDepartments')}</label>
+            <select
+              value={filters.department}
+              onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              {departmentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <Button onClick={handleApply} className="flex-1">{t('analytics.apply')}</Button>
+            <Button variant="secondary" onClick={handleReset} className="flex-1">{t('analytics.reset')}</Button>
+          </div>
+        </div>
+      </ModalOrSheet>
     </div>
   )
 }

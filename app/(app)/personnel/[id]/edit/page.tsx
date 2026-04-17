@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card } from '@/components/ui/Card'
 import { Spinner } from '@/components/ui/Spinner'
+import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
 export default function EditPersonnelPage() {
@@ -21,7 +22,7 @@ export default function EditPersonnelPage() {
   const [form, setForm] = useState({ fullName: '', notes: '', isActive: true })
 
   useEffect(() => {
-    fetch(`/api/personnel/${params.id}`)
+    apiFetch(`/api/personnel/${params.id}`)
       .then((r) => r.json())
       .then((data: Personnel) => {
         setForm({ fullName: data.fullName, notes: data.notes ?? '', isActive: data.isActive })
@@ -37,7 +38,7 @@ export default function EditPersonnelPage() {
     setErrors({})
     setLoading(true)
     try {
-      const res = await fetch(`/api/personnel/${params.id}`, {
+      const res = await apiFetch(`/api/personnel/${params.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: form.fullName.trim(), isActive: form.isActive, notes: form.notes.trim() || null }),
