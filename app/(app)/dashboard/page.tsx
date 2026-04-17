@@ -10,9 +10,11 @@ import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
+import { PersonnelCombobox, type PersonnelChip } from '@/components/ui/PersonnelCombobox'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatTime, formatDuration, calcExpectedMinutes } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
+import type { Personnel } from '@/lib/db/schema'
 
 interface SessionRow {
   sessionId: string
@@ -243,16 +245,36 @@ interface EditTaskState {
   department: string
   colliCount: number
   notes: string
-  personnelCount: number
+  workDate: string
+  startTime: string
+  selectedPersonnel: PersonnelChip[]
+}
+
+function toTimeInputValue(dateTime: string): string {
+  const d = new Date(dateTime)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+}
+
+function combineDateAndTimeToIso(workDate: string, time: string): string {
+  const [hhRaw, mmRaw] = time.split(':')
+  const hh = Number(hhRaw)
+  const mm = Number(mmRaw)
+  const d = new Date(`${workDate}T00:00:00`)
+  d.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0)
+  return d.toISOString()
 }
 
 export default function DashboardPage() {
   const { t, lang } = useLanguage()
   const [sessions, setSessions] = useState<SessionRow[]>([])
+  const [personnelOptions, setPersonnelOptions] = useState<Personnel[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
   const [editState, setEditState] = useState<EditTaskState | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -281,6 +303,32 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [load])
 
+  const loadPersonnel = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/personnel?active=true')
+      if (!res.ok) return
+      const rows: Personnel[] = await res.json()
+      setPersonnelOptions(rows)
+    } catch {
+      // ignore personnel picker loading failures; task editing still works for current assignees
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPersonnel()
+  }, [loadPersonnel])
+
+  const addPersonnel = async (name: string): Promise<PersonnelChip> => {
+    const res = await apiFetch('/api/personnel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fullName: name, isActive: true }),
+    })
+    const created: Personnel = await res.json()
+    setPersonnelOptions((prev) => [...prev, created].sort((a, b) => a.fullName.localeCompare(b.fullName)))
+    return { id: created.id, fullName: created.fullName }
+  }
+
   const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
     setActionId(taskId + action)
     try {
@@ -292,28 +340,68 @@ export default function DashboardPage() {
   }
 
   const openEdit = (group: TaskGroup) => {
+    const activePersonnel = group.personnel
+      .filter((p) => !p.endedAt)
+      .map((p) => ({ id: p.personnelId, fullName: p.personnelName }))
+
+    setPersonnelOptions((prev) => {
+      if (activePersonnel.length === 0) return prev
+      const existing = new Set(prev.map((p) => p.id))
+      const missing = activePersonnel
+        .filter((p) => !existing.has(p.id))
+        .map((p) => ({
+          id: p.id,
+          fullName: p.fullName,
+          isActive: true,
+          notes: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }))
+      return missing.length > 0 ? [...prev, ...missing].sort((a, b) => a.fullName.localeCompare(b.fullName)) : prev
+    })
+
     setEditState({
       taskId: group.taskId,
       department: group.department,
       colliCount: group.colliCount,
       notes: group.taskNotes ?? '',
-      personnelCount: group.personnel.filter((p) => !p.endedAt).length,
+      workDate: group.workDate,
+      startTime: toTimeInputValue(group.startedAt),
+      selectedPersonnel: activePersonnel,
     })
+    setEditError(null)
   }
 
   const saveEdit = async () => {
     if (!editState) return
+    if (editState.selectedPersonnel.length === 0) {
+      setEditError(lang === 'nl' ? 'Selecteer minimaal één medewerker.' : 'Select at least one personnel member.')
+      return
+    }
+    if (!editState.startTime) {
+      setEditError(lang === 'nl' ? 'Vul een starttijd in.' : 'Please provide a start time.')
+      return
+    }
+
     setEditSaving(true)
     try {
-      await apiFetch(`/api/tasks/${editState.taskId}`, {
+      setEditError(null)
+      const res = await apiFetch(`/api/tasks/${editState.taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           department: editState.department,
           colliCount: editState.colliCount,
           notes: editState.notes || null,
+          personnelIds: editState.selectedPersonnel.map((p) => p.id),
+          startedAt: combineDateAndTimeToIso(editState.workDate, editState.startTime),
         }),
       })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        setEditError(payload.error ?? (lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'))
+        return
+      }
       setEditState(null)
       await load()
     } finally {
@@ -367,7 +455,7 @@ export default function DashboardPage() {
   }
 
   const editExpected = editState
-    ? calcExpectedMinutes(editState.colliCount, Math.max(editState.personnelCount, 1))
+    ? calcExpectedMinutes(editState.colliCount, Math.max(editState.selectedPersonnel.length, 1))
     : 0
 
   return (
@@ -643,10 +731,26 @@ export default function DashboardPage() {
       )}
 
       {/* Edit Task Modal */}
-      <ModalOrSheet open={!!editState} onClose={() => setEditState(null)}>
+      <ModalOrSheet open={!!editState} onClose={() => { setEditState(null); setEditError(null) }}>
         {editState && (
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-gray-900">{t('tasks.editTask')}</h2>
+
+            <PersonnelCombobox
+              personnel={personnelOptions}
+              selected={editState.selectedPersonnel}
+              onSelect={(p) =>
+                setEditState((s) => {
+                  if (!s || s.selectedPersonnel.some((x) => x.id === p.id)) return s
+                  return { ...s, selectedPersonnel: [...s.selectedPersonnel, p] }
+                })
+              }
+              onRemove={(id) =>
+                setEditState((s) => (s ? { ...s, selectedPersonnel: s.selectedPersonnel.filter((p) => p.id !== id) } : s))
+              }
+              onAddNew={addPersonnel}
+              label={t('tasks.personnel')}
+            />
 
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.department')}</label>
@@ -677,6 +781,16 @@ export default function DashboardPage() {
             </div>
 
             <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.started')}</label>
+              <input
+                type="time"
+                value={editState.startTime}
+                onChange={(e) => setEditState((s) => (s ? { ...s, startTime: e.target.value } : s))}
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            <div>
               <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.notes')}</label>
               <textarea
                 rows={2}
@@ -687,9 +801,15 @@ export default function DashboardPage() {
               />
             </div>
 
+            {editError && (
+              <div className="rounded-xl px-4 py-3 text-sm font-medium border" style={{ backgroundColor: '#FEF2F2', color: '#E40B17', borderColor: '#FCA5A5' }}>
+                {editError}
+              </div>
+            )}
+
             <div className="flex gap-3 pt-1">
               <Button onClick={saveEdit} loading={editSaving} className="flex-1">{t('common.save')}</Button>
-              <Button variant="secondary" onClick={() => setEditState(null)} className="flex-1">{t('common.cancel')}</Button>
+              <Button variant="secondary" onClick={() => { setEditState(null); setEditError(null) }} className="flex-1">{t('common.cancel')}</Button>
             </div>
           </div>
         )}

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from './Button'
 import { getDepartmentLabel } from '@/lib/departments'
+import { formatTime } from '@/lib/business'
 
 export interface ConflictInfo {
   taskId: string
@@ -87,6 +88,8 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
     nl: {
       title: 'Lopende taak afsluiten',
       subtitle: 'Er is al een actieve taak voor deze medewerker(s)',
+      taskLabel: 'Taak',
+      startedAt: 'Gestart om',
       taskDone: 'Is de taak volledig afgerond?',
       yes: 'Ja, klaar',
       no: 'Nee, nog bezig',
@@ -96,12 +99,12 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
       colliLeft: 'colli totaal',
       continue: 'Doorgaan',
       cancel: 'Annuleren',
-      autoNote: (remaining: number, dept: string) =>
-        `Er wordt automatisch een nieuwe taak van ${remaining} colli aangemaakt voor de overige medewerker(s) in ${dept}.`,
     },
     en: {
       title: 'Close active task',
       subtitle: 'There is already an active task for these personnel',
+      taskLabel: 'Task',
+      startedAt: 'Started at',
       taskDone: 'Is the task fully completed?',
       yes: 'Yes, done',
       no: 'No, still ongoing',
@@ -111,68 +114,69 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
       colliLeft: 'colli total',
       continue: 'Continue',
       cancel: 'Cancel',
-      autoNote: (remaining: number, dept: string) =>
-        `A new ${remaining} colli task will be automatically created for other personnel in ${dept}.`,
     },
   }
 
   const tx = texts[lang]
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h2 className="font-bold text-black text-base">{tx.title}</h2>
         <p className="text-sm text-gray-500 mt-0.5">{tx.subtitle}</p>
       </div>
 
-      {conflicts.map((conflict) => {
+      {conflicts.map((conflict, index) => {
         const r = resolutions[conflict.taskId]
-        const remaining = Number(r.remainingColli)
-        const validRemaining = !isNaN(remaining) && remaining >= 1 && remaining < conflict.colliCount
 
         return (
           <div
             key={conflict.taskId}
-            className="rounded-xl border-2 p-4 space-y-4"
-            style={{ borderColor: '#80BC17' + '40', backgroundColor: '#80BC17' + '05' }}
+            className="rounded-2xl border border-gray-200 p-4 space-y-4"
           >
-            {/* Personnel avatars */}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {tx.taskLabel} {index + 1}
+                </div>
+                <div className="text-sm font-semibold text-gray-900 mt-0.5">
+                  {getDepartmentLabel(conflict.department, lang)}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-semibold text-gray-900">{conflict.colliCount} colli</div>
+                <div className="text-xs text-gray-500">{conflict.expectedMinutes}m</div>
+              </div>
+            </div>
+
+            <div className="text-xs text-gray-500">
+              {tx.startedAt}: {formatTime(conflict.startedAt)}
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {conflict.sessions.map((session) => (
-                <div key={session.sessionId} className="flex items-center gap-2">
+                <div key={session.sessionId} className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1">
                   <span
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                     style={{ backgroundColor: '#80BC17' + '25', color: '#1C7745' }}
                   >
                     {initials(session.personnelName)}
                   </span>
-                  <span className="text-sm font-semibold text-black">{session.personnelName}</span>
+                  <span className="text-xs font-medium text-gray-700">{session.personnelName}</span>
                 </div>
               ))}
             </div>
 
-            {/* Task info */}
-            <div className="flex gap-3 text-sm">
-              <span className="font-medium text-gray-700">
-                {getDepartmentLabel(conflict.department, lang)}
-              </span>
-              <span className="text-gray-400">·</span>
-              <span className="text-gray-600">{conflict.colliCount} colli</span>
-              <span className="text-gray-400">·</span>
-              <span className="text-gray-600">{conflict.expectedMinutes}m</span>
-            </div>
-
-            {/* Is done question */}
             <div>
               <div className="text-sm font-semibold text-gray-800 mb-2">{tx.taskDone}</div>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setIsDone(conflict.taskId, true)}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all"
+                  className="py-2.5 rounded-xl text-sm font-semibold border transition-all"
                   style={
                     r.isDone === true
-                      ? { borderColor: '#80BC17', backgroundColor: '#80BC17' + '15', color: '#1C7745' }
+                      ? { borderColor: '#80BC17', backgroundColor: '#80BC17' + '12', color: '#1C7745' }
                       : { borderColor: '#E5E7EB', backgroundColor: '#fff', color: '#374151' }
                   }
                 >
@@ -181,7 +185,7 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
                 <button
                   type="button"
                   onClick={() => setIsDone(conflict.taskId, false)}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-all"
+                  className="py-2.5 rounded-xl text-sm font-semibold border transition-all"
                   style={
                     r.isDone === false
                       ? { borderColor: '#E40B17', backgroundColor: '#E40B17' + '10', color: '#E40B17' }
@@ -193,11 +197,10 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
               </div>
             </div>
 
-            {/* Remaining colli input */}
             {r.isDone === false && (
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-gray-800 block">{tx.remainingLabel}</label>
-                <div className="flex items-center gap-2">
+                <div className="space-y-1.5">
                   <input
                     type="number"
                     inputMode="numeric"
@@ -206,24 +209,19 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
                     value={r.remainingColli}
                     onChange={(e) => setRemainingColli(conflict.taskId, e.target.value)}
                     placeholder={tx.remainingPlaceholder}
-                    className="w-32 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-xs text-gray-500">
                     {tx.of} {conflict.colliCount} {tx.colliLeft}
                   </span>
                 </div>
-                {validRemaining && (
-                  <p className="text-xs rounded-xl px-3 py-2.5" style={{ backgroundColor: '#544CA9' + '10', color: '#544CA9' }}>
-                    {tx.autoNote(remaining, getDepartmentLabel(conflict.department, lang))}
-                  </p>
-                )}
               </div>
             )}
           </div>
         )
       })}
 
-      <div className="flex gap-3 pt-1">
+      <div className="flex gap-2 pt-1">
         <Button onClick={handleSubmit} disabled={!canSubmit || submitting} loading={submitting} fullWidth size="lg">
           {tx.continue}
         </Button>

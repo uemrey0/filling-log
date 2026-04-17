@@ -27,6 +27,17 @@ export function formatDuration(minutes: number): string {
   return `${h}u ${m}m`
 }
 
+export function formatDurationWithSeconds(minutes: number): string {
+  const totalSeconds = Math.max(0, Math.round(minutes * 60))
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
 export function formatTime(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
   return d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
@@ -38,5 +49,7 @@ export function formatDate(date: Date | string): string {
 }
 
 export function todayDate(): string {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const localMidnightSafe = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  return localMidnightSafe.toISOString().slice(0, 10)
 }
