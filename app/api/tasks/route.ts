@@ -18,12 +18,17 @@ export async function GET(request: NextRequest) {
     const department = searchParams.get('department')
     const activeOnly = searchParams.get('active') === 'true'
     const todayOnly = searchParams.get('today') === 'true'
+    const todayDateParam = searchParams.get('todayDate')
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'))
     const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') ?? '20')))
 
     const baseConditions: ReturnType<typeof eq>[] = []
     if (todayOnly) {
-      baseConditions.push(eq(taskSessions.workDate, todayDate()))
+      const requestedToday =
+        todayDateParam && /^\d{4}-\d{2}-\d{2}$/.test(todayDateParam)
+          ? todayDateParam
+          : todayDate()
+      baseConditions.push(eq(taskSessions.workDate, requestedToday))
     } else {
       if (dateFrom) baseConditions.push(gte(taskSessions.workDate, dateFrom))
       if (dateTo) baseConditions.push(lte(taskSessions.workDate, dateTo))
@@ -127,7 +132,7 @@ export async function POST(request: NextRequest) {
     const { personnelIds, department, colliCount, notes, resolutions } = parsed.data
     const expectedMinutes = calcExpectedMinutes(colliCount, personnelIds.length)
     const now = new Date()
-    const workDate = todayDate()
+    const workDate = parsed.data.workDate ?? todayDate()
 
     const result = await withTransaction(async (client: ClientBase) => {
       const txDb = drizzle(client as unknown as NodePgClient, { schema })

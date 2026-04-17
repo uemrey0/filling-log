@@ -17,6 +17,12 @@ import { calcExpectedMinutes } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
+function getTodayLocalDate(): string {
+  const now = new Date()
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 export default function NewTaskPage() {
   const { t, lang } = useLanguage()
   const router = useRouter()
@@ -111,6 +117,7 @@ export default function NewTaskPage() {
           department: form.department,
           colliCount: Number(form.colliCount),
           notes: form.notes.trim() || null,
+          workDate: getTodayLocalDate(),
           resolutions: resolvedConflicts,
         }),
       })

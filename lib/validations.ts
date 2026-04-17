@@ -18,6 +18,7 @@ export const startTaskSchema = z.object({
   department: z.enum(DEPARTMENT_KEYS),
   colliCount: z.number().int().min(1).max(9999),
   notes: z.string().max(1000).optional().nullable(),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   resolutions: z.array(resolutionSchema).optional().default([]),
 })
 

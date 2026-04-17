@@ -250,6 +250,12 @@ interface EditTaskState {
   selectedPersonnel: PersonnelChip[]
 }
 
+function getTodayLocalDate(): string {
+  const now = new Date()
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 function toTimeInputValue(dateTime: string): string {
   const d = new Date(dateTime)
   const hh = String(d.getHours()).padStart(2, '0')
@@ -281,7 +287,8 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/tasks?today=true')
+      const today = getTodayLocalDate()
+      const res = await apiFetch(`/api/tasks?today=true&todayDate=${today}`)
       if (res.ok) {
         const data = await res.json()
         setSessions(data.sessions ?? data)
