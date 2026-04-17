@@ -144,7 +144,7 @@ export default function NewTaskPage() {
         </Link>
         <div>
           <h1 className="text-xl font-bold text-black">{t('taskForm.title')}</h1>
-          <p className="text-xs text-gray-500 mt-0.5">{t('taskForm.subtitle') || (lang === 'nl' ? 'Vul de gegevens in om een taak te starten' : 'Fill in the details to start a task')}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{lang === 'nl' ? 'Vul de gegevens in om een taak te starten' : 'Fill in the details to start a task'}</p>
         </div>
       </div>
 
