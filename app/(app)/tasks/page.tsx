@@ -51,6 +51,12 @@ interface TaskGroup {
   avgPerformanceDiff: number | null
 }
 
+function getTodayLocalDate(): string {
+  const now = new Date()
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   const map = new Map<string, TaskGroup>()
 
@@ -106,12 +112,13 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
 
 export default function TasksPage() {
   const { t, lang } = useLanguage()
+  const [today] = useState(getTodayLocalDate)
 
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [actionId, setActionId] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [dateFrom, setDateFrom] = useState(today)
+  const [dateTo, setDateTo] = useState(today)
 
   const load = useCallback(async () => {
     const params = new URLSearchParams()
@@ -165,23 +172,23 @@ export default function TasksPage() {
 
       {/* Date filter */}
       <Card padding="sm">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <div className="flex-1 min-w-0">
             <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
+              className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
             />
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
+              className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
             />
           </div>
           {(dateFrom || dateTo) && (
@@ -189,7 +196,7 @@ export default function TasksPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setDateFrom(''); setDateTo('') }}
+                onClick={() => { setDateFrom(today); setDateTo(today) }}
                 className="w-full sm:w-auto"
               >
                 {t('analytics.reset')}

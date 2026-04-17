@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -49,14 +49,23 @@ interface AnalyticsData {
   daily: DailyStat[]
 }
 
+function getDefaultDateRange() {
+  const now = new Date()
+  const today = now.toISOString().slice(0, 10)
+  const thirtyDaysAgoDate = new Date(now)
+  thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30)
+  const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().slice(0, 10)
+
+  return { today, thirtyDaysAgo }
+}
+
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage()
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [personnel, setPersonnel] = useState<Personnel[]>([])
 
-  const today = new Date().toISOString().slice(0, 10)
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+  const [{ today, thirtyDaysAgo }] = useState(getDefaultDateRange)
 
   const [filters, setFilters] = useState({
     dateFrom: thirtyDaysAgo,
@@ -67,22 +76,26 @@ export default function AnalyticsPage() {
 
   const [applied, setApplied] = useState(filters)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
-      if (applied.dateTo) params.set('dateTo', applied.dateTo)
-      if (applied.personnelId) params.set('personnelId', applied.personnelId)
-      if (applied.department) params.set('department', applied.department)
-      const res = await fetch(`/api/analytics?${params}`)
-      if (res.ok) setData(await res.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [applied])
+  useEffect(() => {
+    let cancelled = false
 
-  useEffect(() => { load() }, [load])
+    const load = async () => {
+      try {
+        const params = new URLSearchParams()
+        if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
+        if (applied.dateTo) params.set('dateTo', applied.dateTo)
+        if (applied.personnelId) params.set('personnelId', applied.personnelId)
+        if (applied.department) params.set('department', applied.department)
+        const res = await fetch(`/api/analytics?${params}`)
+        if (!cancelled && res.ok) setData(await res.json())
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => { cancelled = true }
+  }, [applied])
 
   useEffect(() => {
     fetch('/api/personnel')
@@ -91,8 +104,12 @@ export default function AnalyticsPage() {
       .catch(() => {})
   }, [])
 
-  const handleApply = () => setApplied({ ...filters })
+  const handleApply = () => {
+    setLoading(true)
+    setApplied({ ...filters })
+  }
   const handleReset = () => {
+    setLoading(true)
     const reset = { dateFrom: thirtyDaysAgo, dateTo: today, personnelId: '', department: '' }
     setFilters(reset)
     setApplied(reset)
@@ -110,25 +127,25 @@ export default function AnalyticsPage() {
       {/* Filters */}
       <Card padding="md">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">{t('analytics.filters')}</h2>
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {/* Date range - stacked on mobile */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
             </div>
           </div>
@@ -154,9 +171,9 @@ export default function AnalyticsPage() {
             </select>
           </div>
 
-          <div className="flex gap-3 pt-1">
-            <Button fullWidth onClick={handleApply}>{t('analytics.apply')}</Button>
-            <Button variant="secondary" onClick={handleReset}>{t('analytics.reset')}</Button>
+          <div className="flex flex-col sm:flex-row gap-3 pt-1">
+            <Button onClick={handleApply} className="w-full sm:w-auto">{t('analytics.apply')}</Button>
+            <Button variant="secondary" onClick={handleReset} className="w-full sm:w-auto">{t('analytics.reset')}</Button>
           </div>
         </div>
       </Card>

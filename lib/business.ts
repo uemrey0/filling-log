@@ -1,5 +1,7 @@
+const TASK_FIXED_EXTRA_MINUTES = 5
+
 export function calcExpectedMinutes(colliCount: number, personnelCount: number = 1): number {
-  return Math.ceil(colliCount / Math.max(1, personnelCount))
+  return Math.ceil(colliCount / Math.max(1, personnelCount)) + TASK_FIXED_EXTRA_MINUTES
 }
 
 export function calcActualMinutes(startedAt: Date, endedAt: Date): number {
