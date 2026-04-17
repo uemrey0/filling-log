@@ -1,0 +1,86 @@
+import {
+  pgTable,
+  uuid,
+  varchar,
+  integer,
+  boolean,
+  text,
+  timestamp,
+  date,
+  index,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+export const personnel = pgTable(
+  'personnel',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    fullName: varchar('full_name', { length: 255 }).notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('personnel_is_active_idx').on(table.isActive)],
+)
+
+export const tasks = pgTable(
+  'tasks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    department: varchar('department', { length: 50 }).notNull(),
+    colliCount: integer('colli_count').notNull(),
+    expectedMinutes: integer('expected_minutes').notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('tasks_department_idx').on(table.department)],
+)
+
+export const taskSessions = pgTable(
+  'task_sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    personnelId: uuid('personnel_id')
+      .notNull()
+      .references(() => personnel.id, { onDelete: 'restrict' }),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    workDate: date('work_date').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('sessions_personnel_idx').on(table.personnelId),
+    index('sessions_task_idx').on(table.taskId),
+    index('sessions_work_date_idx').on(table.workDate),
+    index('sessions_ended_at_idx').on(table.endedAt),
+  ],
+)
+
+export const personnelRelations = relations(personnel, ({ many }) => ({
+  sessions: many(taskSessions),
+}))
+
+export const tasksRelations = relations(tasks, ({ many }) => ({
+  sessions: many(taskSessions),
+}))
+
+export const taskSessionsRelations = relations(taskSessions, ({ one }) => ({
+  task: one(tasks, { fields: [taskSessions.taskId], references: [tasks.id] }),
+  personnel: one(personnel, {
+    fields: [taskSessions.personnelId],
+    references: [personnel.id],
+  }),
+}))
+
+export type Personnel = typeof personnel.$inferSelect
+export type NewPersonnel = typeof personnel.$inferInsert
+export type Task = typeof tasks.$inferSelect
+export type NewTask = typeof tasks.$inferInsert
+export type TaskSession = typeof taskSessions.$inferSelect
+export type NewTaskSession = typeof taskSessions.$inferInsert
