@@ -60,6 +60,13 @@ function getTodayLocalDate(): string {
   return localTime.toISOString().slice(0, 10)
 }
 
+function shiftLocalDate(dateIso: string, days: number): string {
+  const d = new Date(`${dateIso}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  const localTime = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return localTime.toISOString().slice(0, 10)
+}
+
 function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   const map = new Map<string, TaskGroup>()
 
@@ -121,15 +128,14 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
-  const [dateFrom, setDateFrom] = useState(today)
-  const [dateTo, setDateTo] = useState(today)
+  const [selectedDate, setSelectedDate] = useState(today)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
   const load = useCallback(async (p: number, replace: boolean) => {
     const params = new URLSearchParams()
-    if (dateFrom) params.set('dateFrom', dateFrom)
-    if (dateTo) params.set('dateTo', dateTo)
+    params.set('dateFrom', selectedDate)
+    params.set('dateTo', selectedDate)
     params.set('page', String(p))
     params.set('pageSize', String(PAGE_SIZE))
     try {
@@ -149,7 +155,7 @@ export default function TasksPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [dateFrom, dateTo])
+  }, [selectedDate])
 
   useEffect(() => {
     setLoading(true)
@@ -175,6 +181,13 @@ export default function TasksPage() {
 
   const taskGroups = groupByTask(allSessions)
   const hasMore = allSessions.length < total
+  const canGoNext = selectedDate < today
+  const dateLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(lang === 'nl' ? 'nl-NL' : 'en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
 
   if (loading) {
     return (
@@ -200,38 +213,41 @@ export default function TasksPage() {
         }
       />
 
-      {/* Date filter */}
+      {/* Day bar */}
       <Card padding="sm">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          <div className="flex-1 min-w-0">
-            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
-            />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedDate((prev) => shiftLocalDate(prev, -1))}
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0"
+            aria-label={lang === 'nl' ? 'Vorige dag' : 'Previous day'}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          <div className="flex-1 text-center min-w-0">
+            <div className="text-xs font-medium text-gray-500">{lang === 'nl' ? 'Geselecteerde dag' : 'Selected day'}</div>
+            <div className="text-sm font-semibold text-gray-900 truncate capitalize">{dateLabel}</div>
           </div>
-          <div className="flex-1 min-w-0">
-            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="block w-full min-w-0 max-w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
-            />
-          </div>
-          {(dateFrom !== today || dateTo !== today) && (
-            <div className="flex items-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setDateFrom(today); setDateTo(today) }}
-                className="w-full sm:w-auto"
-              >
-                {t('analytics.reset')}
-              </Button>
-            </div>
+
+          <button
+            type="button"
+            onClick={() => setSelectedDate((prev) => shiftLocalDate(prev, 1))}
+            disabled={!canGoNext}
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label={lang === 'nl' ? 'Volgende dag' : 'Next day'}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          {selectedDate !== today && (
+            <Button variant="ghost" size="sm" onClick={() => setSelectedDate(today)} className="flex-shrink-0">
+              {lang === 'nl' ? 'Vandaag' : 'Today'}
+            </Button>
           )}
         </div>
       </Card>
