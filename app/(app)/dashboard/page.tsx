@@ -897,11 +897,17 @@ export default function DashboardPage() {
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.colliCount')}</label>
               <input
-                type="number"
-                min={1}
-                max={9999}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={editState.colliCount}
-                onChange={(e) => setEditState((s) => s ? { ...s, colliCount: parseInt(e.target.value) || 1 } : s)}
+                onChange={(e) => {
+                  const digitsOnly = e.target.value.replace(/\D/g, '')
+                  const nextValue = digitsOnly === ''
+                    ? 1
+                    : Math.max(1, Math.min(9999, Number(digitsOnly)))
+                  setEditState((s) => (s ? { ...s, colliCount: nextValue } : s))
+                }}
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <p className="text-xs text-gray-400 mt-1">
