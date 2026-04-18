@@ -277,7 +277,10 @@ export default function DashboardPage() {
   const [sessions, setSessions] = useState<SessionRow[]>([])
   const [personnelOptions, setPersonnelOptions] = useState<Personnel[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [statusNowTs, setStatusNowTs] = useState(() => Date.now())
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
   const [editState, setEditState] = useState<EditTaskState | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
@@ -293,6 +296,7 @@ export default function DashboardPage() {
         const data = await res.json()
         setSessions(data.sessions ?? data)
         setLoadError(null)
+        setLastUpdatedAt(new Date())
       } else {
         const data = await res.json().catch(() => ({}))
         setLoadError(data.error ?? `API error ${res.status}`)
@@ -306,9 +310,21 @@ export default function DashboardPage() {
 
   useEffect(() => {
     load()
-    const id = setInterval(load, 30000)
-    return () => clearInterval(id)
   }, [load])
+
+  useEffect(() => {
+    const id = setInterval(() => setStatusNowTs(Date.now()), 60000)
+    return () => clearInterval(id)
+  }, [])
+
+  const manualRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await load()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const loadPersonnel = useCallback(async () => {
     try {
@@ -444,6 +460,21 @@ export default function DashboardPage() {
     day: 'numeric',
     month: 'long',
   })
+  const lastUpdatedLabel = lastUpdatedAt
+    ? lastUpdatedAt.toLocaleTimeString(lang === 'nl' ? 'nl-NL' : 'en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    : t('dashboard.notUpdatedYet')
+  const lastUpdatedAgeMs = lastUpdatedAt ? Math.max(0, statusNowTs - lastUpdatedAt.getTime()) : null
+  const lastUpdatedColor = !lastUpdatedAt
+    ? '#9CA3AF'
+    : lastUpdatedAgeMs !== null && lastUpdatedAgeMs > 10 * 60 * 1000
+      ? '#E40B17'
+      : lastUpdatedAgeMs !== null && lastUpdatedAgeMs > 3 * 60 * 1000
+        ? '#F97316'
+        : '#1C7745'
 
   if (loading) {
     return (
@@ -472,6 +503,27 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-black leading-tight">{t('dashboard.title')}</h1>
           <p className="text-sm text-gray-500 capitalize mt-0.5">{todayLabel}</p>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium tabular-nums" style={{ color: lastUpdatedColor }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lastUpdatedColor }} />
+              {t('dashboard.lastUpdated')}: {lastUpdatedLabel}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={refreshing}
+              onClick={manualRefresh}
+              aria-label={t('dashboard.refresh')}
+              title={t('dashboard.refresh')}
+              className="!px-2"
+            >
+              {!refreshing && (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 00-14-3M4 15a8 8 0 0014 3" />
+                </svg>
+              )}
+            </Button>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-3">
           <LiveClock />
