@@ -183,13 +183,18 @@ export default function NewTaskPage() {
           <div>
             <Input
               label={t('taskForm.colliCount')}
-              type="number"
+              type="text"
               inputMode="numeric"
+              pattern="[0-9]*"
               placeholder={t('taskForm.colliPlaceholder')}
               value={form.colliCount}
-              min={1}
-              max={9999}
-              onChange={(e) => setForm((f) => ({ ...f, colliCount: e.target.value }))}
+              onChange={(e) => {
+                const digitsOnly = e.target.value.replace(/\D/g, '')
+                const nextValue = digitsOnly === ''
+                  ? ''
+                  : String(Math.max(1, Math.min(9999, Number(digitsOnly))))
+                setForm((f) => ({ ...f, colliCount: nextValue }))
+              }}
               error={errors.colliCount}
             />
             {expectedMinutes !== null && (
