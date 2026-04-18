@@ -76,11 +76,11 @@ export async function PUT(
     const body = await request.json()
     const parsed = editTaskSchema.safeParse(body)
     if (!parsed.success) {
-      return Response.json({ error: 'Invalid input' }, { status: 400 })
+      return Response.json({ error: 'Invalid input', code: 'INVALID_INPUT' }, { status: 400 })
     }
 
     const [existing] = await db.select().from(tasks).where(eq(tasks.id, id))
-    if (!existing) return Response.json({ error: 'Not found' }, { status: 404 })
+    if (!existing) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
 
     const newColliCount = parsed.data.colliCount ?? existing.colliCount
     const newDepartment = parsed.data.department ?? existing.department
@@ -185,7 +185,10 @@ export async function PUT(
   } catch (err) {
     console.error('[PUT /api/tasks/[id]]', err)
     if (err instanceof Error && err.message === 'Cannot edit personnel for completed task') {
-      return Response.json({ error: 'Cannot edit personnel for completed task' }, { status: 400 })
+      return Response.json(
+        { error: 'Cannot edit personnel for completed task', code: 'TASK_COMPLETED_EDIT_FORBIDDEN' },
+        { status: 409 },
+      )
     }
     return Response.json({ error: 'Failed to update task' }, { status: 500 })
   }
@@ -204,7 +207,7 @@ export async function DELETE(
       .where(eq(tasks.id, id))
       .returning()
 
-    if (!deleted) return Response.json({ error: 'Not found' }, { status: 404 })
+    if (!deleted) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
     return Response.json({ success: true })
   } catch (err) {
     console.error('[DELETE /api/tasks/[id]]', err)

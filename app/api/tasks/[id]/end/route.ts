@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { taskSessions } from '@/lib/db/schema'
+import { taskSessions, tasks } from '@/lib/db/schema'
 import { eq, isNull, and } from 'drizzle-orm'
 
 export async function POST(
@@ -10,7 +10,26 @@ export async function POST(
   try {
     const { id } = await params
     const body = await request.json().catch(() => ({}))
-    const endedAt = body.endedAt ? new Date(body.endedAt) : new Date()
+    const requestedEndedAt = body.endedAt ? new Date(body.endedAt) : new Date()
+
+    if (Number.isNaN(requestedEndedAt.getTime())) {
+      return Response.json(
+        { error: 'Invalid endedAt', code: 'INVALID_ENDED_AT' },
+        { status: 400 },
+      )
+    }
+
+    const [task] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.id, id))
+
+    if (!task) {
+      return Response.json(
+        { error: 'Task not found', code: 'TASK_NOT_FOUND' },
+        { status: 404 },
+      )
+    }
 
     const activeSessions = await db
       .select()
@@ -18,17 +37,23 @@ export async function POST(
       .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
 
     if (activeSessions.length === 0) {
-      return Response.json({ error: 'Task not found or no active sessions' }, { status: 404 })
+      return Response.json(
+        { error: 'Task already ended', code: 'TASK_ALREADY_ENDED' },
+        { status: 409 },
+      )
     }
 
     // End each session, accounting for any accumulated pause time
+    let endedCount = 0
     for (const session of activeSessions) {
-      let finalPausedMinutes = session.totalPausedMinutes ?? 0
+      const endedAt = new Date(Math.max(requestedEndedAt.getTime(), session.startedAt.getTime()))
+      let finalPausedMinutes = Math.max(0, session.totalPausedMinutes ?? 0)
       if (session.isPaused && session.pausedSince) {
-        finalPausedMinutes += (endedAt.getTime() - session.pausedSince.getTime()) / 60000
+        const pausedExtraMinutes = Math.max(0, (endedAt.getTime() - session.pausedSince.getTime()) / 60000)
+        finalPausedMinutes += pausedExtraMinutes
       }
 
-      await db
+      const [updated] = await db
         .update(taskSessions)
         .set({
           endedAt,
@@ -37,10 +62,20 @@ export async function POST(
           totalPausedMinutes: finalPausedMinutes,
           updatedAt: new Date(),
         })
-        .where(eq(taskSessions.id, session.id))
+        .where(and(eq(taskSessions.id, session.id), isNull(taskSessions.endedAt)))
+        .returning({ id: taskSessions.id })
+
+      if (updated) endedCount++
     }
 
-    return Response.json({ ended: activeSessions.length })
+    if (endedCount === 0) {
+      return Response.json(
+        { error: 'Task already ended', code: 'TASK_ALREADY_ENDED' },
+        { status: 409 },
+      )
+    }
+
+    return Response.json({ ended: endedCount })
   } catch {
     return Response.json({ error: 'Failed to end task' }, { status: 500 })
   }

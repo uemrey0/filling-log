@@ -127,7 +127,6 @@ export default function TasksPage() {
   const [allSessions, setAllSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [actionId, setActionId] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(today)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
@@ -163,16 +162,6 @@ export default function TasksPage() {
     setPage(1)
     load(1, true)
   }, [load])
-
-  const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
-    setActionId(taskId + action)
-    try {
-      await apiFetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
-      await load(1, true)
-    } finally {
-      setActionId(null)
-    }
-  }
 
   const loadMore = () => {
     setLoadingMore(true)
@@ -272,7 +261,14 @@ export default function TasksPage() {
                 : group.avgPerformanceDiff <= 0 ? '#80BC17'
                 : '#E40B17'
 
-              const personnelNames = group.personnel.map((p) => p.personnelName).join(', ')
+              const personnelNames = group.personnel.map((p) => p.personnelName)
+              const personnelSummary = personnelNames.length > 2
+                ? `${personnelNames.slice(0, 2).join(', ')} +${personnelNames.length - 2}`
+                : personnelNames.join(', ')
+              const completedPersonnel = group.personnel.filter((p) => p.actualMinutes !== null)
+              const avgActual = completedPersonnel.length > 0
+                ? completedPersonnel.reduce((sum, p) => sum + p.actualMinutes!, 0) / completedPersonnel.length
+                : null
 
               return (
                 <Card key={group.taskId} padding="none" className="overflow-hidden">
@@ -284,7 +280,9 @@ export default function TasksPage() {
                     <div className="flex-1 flex items-start justify-between gap-3 px-3 py-3 min-w-0">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="font-semibold text-black text-sm truncate max-w-[200px]">{personnelNames}</span>
+                          <span className="font-semibold text-black text-sm truncate max-w-[220px]">
+                            {personnelSummary}
+                          </span>
                           {group.isActive ? (
                             group.isPaused
                               ? <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
@@ -294,18 +292,15 @@ export default function TasksPage() {
                           )}
                         </div>
                         <div className="text-xs text-gray-500 mb-1.5">
-                          {getDepartmentLabel(group.department, lang)} · {group.colliCount} {t('tasks.colli')}
+                          {group.colliCount} {t('tasks.colli')} · {t('tasks.expected')}: {group.expectedMinutes}m
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
                           <span>{formatDate(group.workDate)}</span>
                           <span className="tabular-nums">
                             {formatTime(group.startedAt)}{group.endedAt ? ` – ${formatTime(group.endedAt)}` : ''}
                           </span>
-                          <span>{t('tasks.expected')}: {group.expectedMinutes}m</span>
-                          {!group.isActive && group.personnel[0]?.actualMinutes !== null && (
-                            <span>{t('tasks.actual')}: {formatDuration(
-                              group.personnel.reduce((sum, p) => sum + (p.actualMinutes ?? 0), 0) / group.personnel.filter(p => p.actualMinutes !== null).length
-                            )}</span>
+                          {!group.isActive && avgActual !== null && (
+                            <span>{t('tasks.actual')}: {formatDuration(avgActual)}</span>
                           )}
                         </div>
                       </div>
@@ -313,40 +308,6 @@ export default function TasksPage() {
                       <div className="flex flex-col items-end gap-2 flex-shrink-0">
                         {group.avgPerformanceDiff !== null && !group.isActive && (
                           <PerformanceDiff diffMinutes={group.avgPerformanceDiff} />
-                        )}
-                        {group.isActive && (
-                          <div className="flex gap-1.5">
-                            {group.isPaused ? (
-                              <Button
-                                size="sm"
-                                loading={actionId === group.taskId + 'resume'}
-                                onClick={() => doAction(group.taskId, 'resume')}
-                              >
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M8 5v14l11-7z" />
-                                </svg>
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                loading={actionId === group.taskId + 'pause'}
-                                onClick={() => doAction(group.taskId, 'pause')}
-                              >
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                                </svg>
-                              </Button>
-                            )}
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              loading={actionId === group.taskId + 'end'}
-                              onClick={() => doAction(group.taskId, 'end')}
-                            >
-                              {t('dashboard.endTask')}
-                            </Button>
-                          </div>
                         )}
                       </div>
                     </div>

@@ -15,6 +15,7 @@ import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatTime, formatDuration, calcExpectedMinutes } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
+import { toast } from 'sonner'
 
 interface SessionRow {
   sessionId: string
@@ -63,6 +64,46 @@ interface TaskGroup {
   totalPausedMinutes: number
   personnel: PersonnelEntry[]
   avgPerformanceDiff: number | null
+}
+
+interface ApiErrorPayload {
+  error?: string
+  code?: string
+}
+
+async function parseApiErrorPayload(response: Response): Promise<ApiErrorPayload> {
+  return response.json().catch(() => ({})) as Promise<ApiErrorPayload>
+}
+
+function getDashboardErrorMessage(
+  lang: 'nl' | 'en',
+  code: string | undefined,
+  fallback: string,
+): string {
+  if (code === 'TASK_NOT_FOUND') {
+    return lang === 'nl' ? 'Deze taak bestaat niet meer.' : 'This task no longer exists.'
+  }
+  if (code === 'TASK_ALREADY_ENDED') {
+    return lang === 'nl' ? 'Deze taak is al beëindigd.' : 'This task is already ended.'
+  }
+  if (code === 'TASK_ALREADY_PAUSED') {
+    return lang === 'nl' ? 'Deze taak is al gepauzeerd.' : 'This task is already paused.'
+  }
+  if (code === 'TASK_NOT_PAUSED') {
+    return lang === 'nl' ? 'Deze taak is al hervat.' : 'This task is already resumed.'
+  }
+  if (code === 'TASK_COMPLETED_EDIT_FORBIDDEN') {
+    return lang === 'nl'
+      ? 'Een afgeronde taak kan niet meer aangepast worden.'
+      : 'A completed task can no longer be edited.'
+  }
+  if (code === 'INVALID_INPUT') {
+    return lang === 'nl' ? 'Ongeldige invoer.' : 'Invalid input.'
+  }
+  if (code === 'INVALID_ENDED_AT') {
+    return lang === 'nl' ? 'Ongeldige eindtijd.' : 'Invalid end time.'
+  }
+  return fallback
 }
 
 function groupByTask(sessions: SessionRow[]): TaskGroup[] {
@@ -279,37 +320,43 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [statusNowTs, setStatusNowTs] = useState(() => Date.now())
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
   const [editState, setEditState] = useState<EditTaskState | null>(null)
-  const [editError, setEditError] = useState<string | null>(null)
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ showToastOnError = false }: { showToastOnError?: boolean } = {}) => {
     try {
       const today = getTodayLocalDate()
       const res = await apiFetch(`/api/tasks?today=true&todayDate=${today}`)
       if (res.ok) {
         const data = await res.json()
         setSessions(data.sessions ?? data)
-        setLoadError(null)
         setLastUpdatedAt(new Date())
+        return true
       } else {
-        const data = await res.json().catch(() => ({}))
-        setLoadError(data.error ?? `API error ${res.status}`)
+        const payload = await parseApiErrorPayload(res)
+        if (showToastOnError) {
+          const fallback = lang === 'nl' ? 'Taken laden mislukt.' : 'Failed to load tasks.'
+          toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+        }
+        return false
       }
     } catch (err) {
-      setLoadError(String(err))
+      if (showToastOnError) {
+        const fallback = lang === 'nl' ? 'Taken laden mislukt.' : 'Failed to load tasks.'
+        toast.error(getDashboardErrorMessage(lang, undefined, String(err) || fallback))
+      }
+      return false
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [lang])
 
   useEffect(() => {
-    load()
+    void load({ showToastOnError: true })
   }, [load])
 
   useEffect(() => {
@@ -320,7 +367,7 @@ export default function DashboardPage() {
   const manualRefresh = async () => {
     setRefreshing(true)
     try {
-      await load()
+      await load({ showToastOnError: true })
     } finally {
       setRefreshing(false)
     }
@@ -347,6 +394,12 @@ export default function DashboardPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fullName: name, isActive: true }),
     })
+    if (!res.ok) {
+      const payload = await parseApiErrorPayload(res)
+      const fallback = lang === 'nl' ? 'Medewerker toevoegen mislukt.' : 'Failed to add personnel.'
+      toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+      throw new Error(payload.error ?? fallback)
+    }
     const created: Personnel = await res.json()
     setPersonnelOptions((prev) => [...prev, created].sort((a, b) => a.fullName.localeCompare(b.fullName)))
     return { id: created.id, fullName: created.fullName }
@@ -355,8 +408,20 @@ export default function DashboardPage() {
   const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
     setActionId(taskId + action)
     try {
-      await apiFetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
-      await load()
+      const res = await apiFetch(`/api/tasks/${taskId}/${action}`, { method: 'POST', body: '{}' })
+      if (!res.ok) {
+        const payload = await parseApiErrorPayload(res)
+        const fallback = lang === 'nl'
+          ? 'Actie kon niet worden uitgevoerd.'
+          : 'Action could not be completed.'
+        toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+        await load({ showToastOnError: false })
+        return
+      }
+      await load({ showToastOnError: false })
+    } catch {
+      const fallback = lang === 'nl' ? 'Actie kon niet worden uitgevoerd.' : 'Action could not be completed.'
+      toast.error(getDashboardErrorMessage(lang, undefined, fallback))
     } finally {
       setActionId(null)
     }
@@ -392,23 +457,21 @@ export default function DashboardPage() {
       startTime: toTimeInputValue(group.startedAt),
       selectedPersonnel: activePersonnel,
     })
-    setEditError(null)
   }
 
   const saveEdit = async () => {
     if (!editState) return
     if (editState.selectedPersonnel.length === 0) {
-      setEditError(lang === 'nl' ? 'Selecteer minimaal één medewerker.' : 'Select at least one personnel member.')
+      toast.error(lang === 'nl' ? 'Selecteer minimaal één medewerker.' : 'Select at least one personnel member.')
       return
     }
     if (!editState.startTime) {
-      setEditError(lang === 'nl' ? 'Vul een starttijd in.' : 'Please provide a start time.')
+      toast.error(lang === 'nl' ? 'Vul een starttijd in.' : 'Please provide a start time.')
       return
     }
 
     setEditSaving(true)
     try {
-      setEditError(null)
       const res = await apiFetch(`/api/tasks/${editState.taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -421,12 +484,17 @@ export default function DashboardPage() {
         }),
       })
       if (!res.ok) {
-        const payload = await res.json().catch(() => ({}))
-        setEditError(payload.error ?? (lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'))
+        const payload = await parseApiErrorPayload(res)
+        const fallback = lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'
+        toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+        await load({ showToastOnError: false })
         return
       }
       setEditState(null)
-      await load()
+      await load({ showToastOnError: false })
+    } catch {
+      const fallback = lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'
+      toast.error(getDashboardErrorMessage(lang, undefined, fallback))
     } finally {
       setEditSaving(false)
     }
@@ -437,8 +505,18 @@ export default function DashboardPage() {
     setDeletingId(deleteTaskId)
     setDeleteTaskId(null)
     try {
-      await apiFetch(`/api/tasks/${deleteTaskId}`, { method: 'DELETE' })
-      await load()
+      const res = await apiFetch(`/api/tasks/${deleteTaskId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const payload = await parseApiErrorPayload(res)
+        const fallback = lang === 'nl' ? 'Verwijderen mislukt.' : 'Delete failed.'
+        toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+        await load({ showToastOnError: false })
+        return
+      }
+      await load({ showToastOnError: false })
+    } catch {
+      const fallback = lang === 'nl' ? 'Verwijderen mislukt.' : 'Delete failed.'
+      toast.error(getDashboardErrorMessage(lang, undefined, fallback))
     } finally {
       setDeletingId(null)
     }
@@ -480,14 +558,6 @@ export default function DashboardPage() {
     return (
       <div className="flex justify-center py-20">
         <Spinner size="lg" className="text-primary" />
-      </div>
-    )
-  }
-
-  if (loadError) {
-    return (
-      <div className="rounded-xl px-4 py-3 text-sm font-medium border" style={{ backgroundColor: '#FEF2F2', color: '#E40B17', borderColor: '#FCA5A5' }}>
-        {lang === 'nl' ? 'Fout bij laden' : 'Error loading'}: {loadError}
       </div>
     )
   }
@@ -790,7 +860,7 @@ export default function DashboardPage() {
       )}
 
       {/* Edit Task Modal */}
-      <ModalOrSheet open={!!editState} onClose={() => { setEditState(null); setEditError(null) }}>
+      <ModalOrSheet open={!!editState} onClose={() => { setEditState(null) }}>
         {editState && (
           <div className="space-y-4">
             <h2 className="text-lg font-bold text-gray-900">{t('tasks.editTask')}</h2>
@@ -860,15 +930,9 @@ export default function DashboardPage() {
               />
             </div>
 
-            {editError && (
-              <div className="rounded-xl px-4 py-3 text-sm font-medium border" style={{ backgroundColor: '#FEF2F2', color: '#E40B17', borderColor: '#FCA5A5' }}>
-                {editError}
-              </div>
-            )}
-
             <div className="flex gap-3 pt-1">
               <Button onClick={saveEdit} loading={editSaving} className="flex-1">{t('common.save')}</Button>
-              <Button variant="secondary" onClick={() => { setEditState(null); setEditError(null) }} className="flex-1">{t('common.cancel')}</Button>
+              <Button variant="secondary" onClick={() => { setEditState(null) }} className="flex-1">{t('common.cancel')}</Button>
             </div>
           </div>
         )}
