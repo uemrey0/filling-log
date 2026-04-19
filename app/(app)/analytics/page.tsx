@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react'
 import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatDuration, formatDate } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
@@ -144,9 +144,36 @@ export default function AnalyticsPage() {
       )}
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <Spinner size="lg" className="text-primary" />
-        </div>
+        <>
+          <div>
+            <Skeleton className="h-3 w-24 mb-3" />
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <Card key={`analytics-overview-skeleton-${idx}`} padding="sm" className="text-center space-y-2">
+                  <Skeleton className="h-7 w-16 mx-auto" />
+                  <Skeleton className="h-3 w-24 mx-auto" />
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <Skeleton className="h-3 w-28 mb-3" />
+            <Card padding="none">
+              <div className="divide-y divide-gray-100">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <div key={`analytics-dept-skeleton-${idx}`} className="flex items-center justify-between px-4 py-3 gap-3">
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-36" />
+                    </div>
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        </>
       ) : !data || data.overview.totalSessions === 0 ? (
         <Card>
           <div className="text-center py-12 text-sm text-gray-500">{t('analytics.noData')}</div>

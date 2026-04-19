@@ -5,13 +5,11 @@ import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
+import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
 import { getDepartmentLabel } from '@/lib/departments'
-import { formatTime, formatDuration, formatDate } from '@/lib/business'
+import { formatTime, formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
 const PAGE_SIZE = 20
@@ -22,6 +20,7 @@ interface SessionRow {
   department: string
   colliCount: number
   expectedMinutes: number
+  taskNotes: string | null
   personnelName: string
   startedAt: string
   endedAt: string | null
@@ -50,8 +49,10 @@ interface TaskGroup {
   endedAt: string | null
   isActive: boolean
   isPaused: boolean
+  hasNotes: boolean
   personnel: PersonnelEntry[]
   avgPerformanceDiff: number | null
+  avgActualMinutes: number | null
 }
 
 function getTodayLocalDate(): string {
@@ -83,8 +84,10 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
         endedAt: s.endedAt,
         isActive: !s.endedAt,
         isPaused: false,
+        hasNotes: !!(s.taskNotes && s.taskNotes.trim().length > 0),
         personnel: [],
         avgPerformanceDiff: null,
+        avgActualMinutes: null,
       }
       map.set(s.taskId, group)
     } else {
@@ -115,6 +118,11 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
     if (withDiff.length > 0) {
       group.avgPerformanceDiff = withDiff.reduce((sum, p) => sum + p.performanceDiff!, 0) / withDiff.length
     }
+
+    const withActual = group.personnel.filter((p) => p.actualMinutes !== null)
+    if (withActual.length > 0) {
+      group.avgActualMinutes = withActual.reduce((sum, p) => sum + p.actualMinutes!, 0) / withActual.length
+    }
   }
 
   return Array.from(map.values())
@@ -130,6 +138,16 @@ export default function TasksPage() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+
+  const applySelectedDate = (nextDate: string) => {
+    if (nextDate === selectedDate) return
+    setLoading(true)
+    setLoadingMore(false)
+    setAllSessions([])
+    setPage(1)
+    setTotal(0)
+    setSelectedDate(nextDate)
+  }
 
   const load = useCallback(async (p: number, replace: boolean) => {
     const params = new URLSearchParams()
@@ -157,9 +175,6 @@ export default function TasksPage() {
   }, [selectedDate])
 
   useEffect(() => {
-    setLoading(true)
-    setAllSessions([])
-    setPage(1)
     load(1, true)
   }, [load])
 
@@ -177,14 +192,6 @@ export default function TasksPage() {
     month: 'long',
     year: 'numeric',
   })
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner size="lg" className="text-primary" />
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-5">
@@ -207,7 +214,7 @@ export default function TasksPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setSelectedDate((prev) => shiftLocalDate(prev, -1))}
+            onClick={() => applySelectedDate(shiftLocalDate(selectedDate, -1))}
             className="w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0"
             aria-label={lang === 'nl' ? 'Vorige dag' : 'Previous day'}
           >
@@ -223,7 +230,7 @@ export default function TasksPage() {
 
           <button
             type="button"
-            onClick={() => setSelectedDate((prev) => shiftLocalDate(prev, 1))}
+            onClick={() => applySelectedDate(shiftLocalDate(selectedDate, 1))}
             disabled={!canGoNext}
             className="w-9 h-9 rounded-xl border border-gray-200 bg-gray-50 text-gray-600 hover:bg-white hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
             aria-label={lang === 'nl' ? 'Volgende dag' : 'Next day'}
@@ -234,14 +241,20 @@ export default function TasksPage() {
           </button>
 
           {selectedDate !== today && (
-            <Button variant="ghost" size="sm" onClick={() => setSelectedDate(today)} className="flex-shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => applySelectedDate(today)} className="flex-shrink-0">
               {lang === 'nl' ? 'Vandaag' : 'Today'}
             </Button>
           )}
         </div>
       </Card>
 
-      {taskGroups.length === 0 ? (
+      {loading ? (
+        <div className="space-y-2">
+          <TaskSummaryCardSkeleton />
+          <TaskSummaryCardSkeleton />
+          <TaskSummaryCardSkeleton />
+        </div>
+      ) : taskGroups.length === 0 ? (
         <Card>
           <EmptyState
             title={t('tasks.noTasks')}
@@ -261,58 +274,28 @@ export default function TasksPage() {
                 : group.avgPerformanceDiff <= 0 ? '#80BC17'
                 : '#E40B17'
 
+              const departmentLabel = getDepartmentLabel(group.department, lang)
               const personnelNames = group.personnel.map((p) => p.personnelName)
               const personnelSummary = personnelNames.length > 2
                 ? `${personnelNames.slice(0, 2).join(', ')} +${personnelNames.length - 2}`
                 : personnelNames.join(', ')
-              const completedPersonnel = group.personnel.filter((p) => p.actualMinutes !== null)
-              const avgActual = completedPersonnel.length > 0
-                ? completedPersonnel.reduce((sum, p) => sum + p.actualMinutes!, 0) / completedPersonnel.length
-                : null
+              const totalDuration = group.avgActualMinutes
 
               return (
-                <Card key={group.taskId} padding="none" className="overflow-hidden">
-                  <div className="flex">
-                    <div
-                      className="w-1 flex-shrink-0 self-stretch"
-                      style={{ backgroundColor: group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB') }}
-                    />
-                    <div className="flex-1 flex items-start justify-between gap-3 px-3 py-3 min-w-0">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="font-semibold text-black text-sm truncate max-w-[220px]">
-                            {personnelSummary}
-                          </span>
-                          {group.isActive ? (
-                            group.isPaused
-                              ? <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
-                              : <Badge variant="green">{t('tasks.active')}</Badge>
-                          ) : (
-                            <Badge variant="gray">{t('tasks.completed')}</Badge>
-                          )}
-                        </div>
-                        <div className="text-xs text-gray-500 mb-1.5">
-                          {group.colliCount} {t('tasks.colli')} · {t('tasks.expected')}: {group.expectedMinutes}m
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
-                          <span>{formatDate(group.workDate)}</span>
-                          <span className="tabular-nums">
-                            {formatTime(group.startedAt)}{group.endedAt ? ` – ${formatTime(group.endedAt)}` : ''}
-                          </span>
-                          {!group.isActive && avgActual !== null && (
-                            <span>{t('tasks.actual')}: {formatDuration(avgActual)}</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                        {group.avgPerformanceDiff !== null && !group.isActive && (
-                          <PerformanceDiff diffMinutes={group.avgPerformanceDiff} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
+                <Link key={group.taskId} href={`/tasks/${group.taskId}`} className="block">
+                  <TaskSummaryCard
+                    className="hover:border-gray-300 transition-colors"
+                    accentColor={group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB')}
+                    title={personnelSummary}
+                    subtitle={`${departmentLabel} · ${group.colliCount} ${t('tasks.colli')}`}
+                    timeRange={`${formatTime(group.startedAt)} - ${group.endedAt ? formatTime(group.endedAt) : '...'}`}
+                    statusLabel={group.isActive ? (group.isPaused ? (lang === 'nl' ? 'Gepauzeerd' : 'Paused') : t('tasks.active')) : undefined}
+                    statusTone={group.isPaused ? 'paused' : 'active'}
+                    duration={!group.isActive && totalDuration !== null ? formatDuration(totalDuration) : null}
+                    diffMinutes={!group.isActive ? group.avgPerformanceDiff : null}
+                    hasNotes={group.hasNotes}
+                  />
+                </Link>
               )
             })}
           </div>

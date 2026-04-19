@@ -7,10 +7,11 @@ import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
+import { TaskSummaryCard } from '@/components/ui/TaskSummaryCard'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDate, formatDuration, formatDurationWithSeconds } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
@@ -212,7 +213,70 @@ export default function PersonnelDetailPage() {
   }
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Spinner size="lg" className="text-primary" /></div>
+    return (
+      <div className="space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/personnel"
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </Link>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-11 w-11 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-6 w-40" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
+            </div>
+          </div>
+          <Skeleton className="h-9 w-9 rounded-xl" />
+        </div>
+
+        <Card padding="sm">
+          <Skeleton className="h-4 w-full" />
+        </Card>
+
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-7 w-44 rounded-full" />
+          <Skeleton className="h-7 w-24 rounded-full" />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={`personnel-stats-skeleton-${idx}`} padding="sm" className="text-center space-y-2">
+              <Skeleton className="h-7 w-12 mx-auto" />
+              <Skeleton className="h-3 w-20 mx-auto" />
+              <Skeleton className="h-5 w-14 mx-auto rounded-full" />
+            </Card>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-28" />
+          <Card padding="none">
+            <div className="divide-y divide-gray-100">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <div key={`personnel-history-skeleton-${idx}`} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="h-6 w-1 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-14" />
+                    <Skeleton className="h-5 w-12 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    )
   }
 
   if (!data) {
@@ -479,40 +543,28 @@ export default function PersonnelDetailPage() {
           </Card>
         ) : (
           <>
-            <Card padding="none">
-              <div className="divide-y divide-gray-100">
-                {completed.map((s) => {
-                  const perfColor =
-                    s.performanceDiff === null ? '#D1D5DB'
-                    : Number(s.performanceDiff) <= 0 ? '#80BC17'
-                    : '#E40B17'
+            <div className="space-y-2">
+              {completed.map((s) => {
+                const perfColor =
+                  s.performanceDiff === null ? '#D1D5DB'
+                  : Number(s.performanceDiff) <= 0 ? '#80BC17'
+                  : '#E40B17'
 
-                  return (
-                    <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: perfColor }} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900">
-                          {getDepartmentLabel(s.department, lang)}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {formatDate(s.workDate)} · {s.colliCount} colli · {formatTime(s.startedAt)}–{s.endedAt ? formatTime(s.endedAt) : '–'}
-                        </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        {s.actualMinutes !== null && (
-                          <div className="text-xs font-medium text-gray-700 tabular-nums mb-0.5">
-                            {formatDuration(Number(s.actualMinutes))}
-                          </div>
-                        )}
-                        {s.performanceDiff !== null && (
-                          <PerformanceDiff diffMinutes={Number(s.performanceDiff)} />
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
+                return (
+                  <Link key={s.id} href={`/tasks/${s.taskId}`} className="block">
+                    <TaskSummaryCard
+                      className="hover:border-gray-300 transition-colors"
+                      accentColor={perfColor}
+                      title={getDepartmentLabel(s.department, lang)}
+                      subtitle={`${formatDate(s.workDate)} · ${s.colliCount} ${t('tasks.colli')}`}
+                      timeRange={`${formatTime(s.startedAt)} - ${s.endedAt ? formatTime(s.endedAt) : '...'}`}
+                      duration={s.actualMinutes !== null ? formatDuration(Number(s.actualMinutes)) : null}
+                      diffMinutes={s.performanceDiff !== null ? Number(s.performanceDiff) : null}
+                    />
+                  </Link>
+                )
+              })}
+            </div>
 
             {hasMore && (
               <div className="mt-3 flex justify-center">

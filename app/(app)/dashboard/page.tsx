@@ -6,11 +6,13 @@ import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
+import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
+import { EndTaskModal, type EndTaskConfirmData } from '@/components/ui/EndTaskModal'
 import { PersonnelCombobox, type PersonnelChip } from '@/components/ui/PersonnelCombobox'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
 import { formatTime, formatDuration, calcExpectedMinutes } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
@@ -326,6 +328,8 @@ export default function DashboardPage() {
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [endingTask, setEndingTask] = useState<TaskGroup | null>(null)
+  const [endingSaving, setEndingSaving] = useState(false)
 
   const load = useCallback(async ({ showToastOnError = false }: { showToastOnError?: boolean } = {}) => {
     try {
@@ -424,6 +428,34 @@ export default function DashboardPage() {
       toast.error(getDashboardErrorMessage(lang, undefined, fallback))
     } finally {
       setActionId(null)
+    }
+  }
+
+  const confirmEndTask = async (data: EndTaskConfirmData) => {
+    if (!endingTask) return
+    setEndingSaving(true)
+    try {
+      const res = await apiFetch(`/api/tasks/${endingTask.taskId}/end`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const payload = await parseApiErrorPayload(res)
+        const fallback = lang === 'nl'
+          ? 'Actie kon niet worden uitgevoerd.'
+          : 'Action could not be completed.'
+        toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+        await load({ showToastOnError: false })
+        return
+      }
+      setEndingTask(null)
+      await load({ showToastOnError: false })
+    } catch {
+      const fallback = lang === 'nl' ? 'Actie kon niet worden uitgevoerd.' : 'Action could not be completed.'
+      toast.error(getDashboardErrorMessage(lang, undefined, fallback))
+    } finally {
+      setEndingSaving(false)
     }
   }
 
@@ -554,14 +586,6 @@ export default function DashboardPage() {
         ? '#F97316'
         : '#1C7745'
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner size="lg" className="text-primary" />
-      </div>
-    )
-  }
-
   const editExpected = editState
     ? calcExpectedMinutes(editState.colliCount, Math.max(editState.selectedPersonnel.length, 1))
     : 0
@@ -609,7 +633,17 @@ export default function DashboardPage() {
       </div>
 
       {/* Summary strip */}
-      {taskGroups.length > 0 && (
+      {loading ? (
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <Card key={`dashboard-summary-skeleton-${idx}`} padding="sm" className="text-center space-y-2">
+              <Skeleton className="h-8 w-8 rounded-full mx-auto" />
+              <Skeleton className="h-7 w-12 mx-auto" />
+              <Skeleton className="h-3 w-24 mx-auto" />
+            </Card>
+          ))}
+        </div>
+      ) : taskGroups.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <Card padding="sm" className="text-center">
             <div className="mx-auto mb-2 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
@@ -662,7 +696,34 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {active.length === 0 ? (
+        {loading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, idx) => (
+              <Card key={`dashboard-active-skeleton-${idx}`} padding="none" className="overflow-hidden">
+                <div className="h-1 bg-gray-200" />
+                <div className="px-4 pt-3 pb-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-2 w-full">
+                      <Skeleton className="h-5 w-48" />
+                      <Skeleton className="h-4 w-32" />
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Skeleton className="h-7 w-7 rounded-lg" />
+                      <Skeleton className="h-7 w-7 rounded-lg" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-4 w-64" />
+                  <Skeleton className="h-10 w-full" />
+                  <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                    <Skeleton className="h-3 w-40 flex-1" />
+                    <Skeleton className="h-8 w-20 rounded-lg" />
+                    <Skeleton className="h-8 w-20 rounded-lg" />
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : active.length === 0 ? (
           <Card>
             <EmptyState
               title={t('dashboard.noActiveTasks')}
@@ -776,8 +837,7 @@ export default function DashboardPage() {
                     <Button
                       variant="danger"
                       size="sm"
-                      loading={actionId === group.taskId + 'end'}
-                      onClick={() => doAction(group.taskId, 'end')}
+                      onClick={() => setEndingTask(group)}
                     >
                       {t('dashboard.endTask')}
                     </Button>
@@ -790,18 +850,27 @@ export default function DashboardPage() {
       </div>
 
       {/* Completed tasks */}
-      {completed.length > 0 && (
+      {(loading || completed.length > 0) && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
               {t('dashboard.completedTasks')}
             </h2>
-            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[10px] font-bold text-gray-600">
-              {completed.length}
-            </span>
+            {!loading && (
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[10px] font-bold text-gray-600">
+                {completed.length}
+              </span>
+            )}
           </div>
-          <div className="space-y-2">
-            {completed.map((group) => {
+          {loading ? (
+            <div className="space-y-2">
+              <TaskSummaryCardSkeleton />
+              <TaskSummaryCardSkeleton />
+              <TaskSummaryCardSkeleton />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {completed.map((group) => {
               const perfColor =
                 group.avgPerformanceDiff === null ? '#D1D5DB'
                 : group.avgPerformanceDiff <= 0 ? '#80BC17'
@@ -814,39 +883,25 @@ export default function DashboardPage() {
                 : null
 
               return (
-                <Card key={group.taskId} padding="none" className="overflow-hidden">
-                  <div className="flex">
-                    <div className="w-1.5 flex-shrink-0 self-stretch" style={{ backgroundColor: perfColor }} />
-                    <div className="flex-1 flex items-center justify-between gap-3 px-3 py-3 min-w-0">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-900 text-sm leading-snug truncate">{personnelNames}</div>
-                        <div className="text-xs text-gray-500 mt-0.5 truncate">
-                          {getDepartmentLabel(group.department, lang)} · {group.colliCount} {t('tasks.colli')}
-                        </div>
-                        <div className="text-xs text-gray-400 tabular-nums mt-1">
-                          {formatTime(group.startedAt)} – {group.endedAt ? formatTime(group.endedAt) : '–'}
-                        </div>
-                      </div>
-                      <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                        {avgActual !== null && (
-                          <span className="text-sm font-bold text-gray-800 tabular-nums">
-                            {formatDuration(avgActual)}
-                          </span>
-                        )}
-                        {group.avgPerformanceDiff !== null && (
-                          <PerformanceDiff diffMinutes={group.avgPerformanceDiff} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
+                <Link key={group.taskId} href={`/tasks/${group.taskId}`} className="block">
+                  <TaskSummaryCard
+                    className="hover:border-gray-300 transition-colors"
+                    accentColor={perfColor}
+                    title={personnelNames}
+                    subtitle={`${getDepartmentLabel(group.department, lang)} · ${group.colliCount} ${t('tasks.colli')}`}
+                    timeRange={`${formatTime(group.startedAt)} - ${group.endedAt ? formatTime(group.endedAt) : '...'}`}
+                    duration={avgActual !== null ? formatDuration(avgActual) : null}
+                    diffMinutes={group.avgPerformanceDiff}
+                  />
+                </Link>
               )
             })}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
-      {taskGroups.length === 0 && (
+      {!loading && taskGroups.length === 0 && (
         <Card>
           <EmptyState
             title={t('dashboard.noCompletedTasks')}
@@ -943,6 +998,27 @@ export default function DashboardPage() {
           </div>
         )}
       </ModalOrSheet>
+
+      {/* End Task Modal */}
+      <EndTaskModal
+        open={!!endingTask}
+        onClose={() => setEndingTask(null)}
+        onConfirm={confirmEndTask}
+        task={endingTask ? {
+          colliCount: endingTask.colliCount,
+          startedAt: endingTask.startedAt,
+          personnel: endingTask.personnel
+            .filter((p) => !p.endedAt)
+            .map((p) => ({
+              sessionId: p.sessionId,
+              personnelId: p.personnelId,
+              personnelName: p.personnelName,
+              startedAt: p.startedAt,
+            })),
+        } : null}
+        loading={endingSaving}
+      />
+
 
       {/* Delete Confirm Modal */}
       <ModalOrSheet open={!!deleteTaskId} onClose={() => setDeleteTaskId(null)}>

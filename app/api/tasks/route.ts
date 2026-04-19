@@ -145,20 +145,17 @@ export async function POST(request: NextRequest) {
             .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
         } else {
           const remainingColli = res.remainingColli ?? 0
+          const selectedPersonnelSet = new Set(personnelIds)
 
-          const otherActiveSessions = await txDb
+          const activeSessions = await txDb
             .select({ personnelId: taskSessions.personnelId })
             .from(taskSessions)
-            .where(
-              and(
-                eq(taskSessions.taskId, res.taskId),
-                isNull(taskSessions.endedAt),
-                sql`${taskSessions.personnelId} NOT IN (${sql.join(
-                  personnelIds.map((id) => sql`${id}::uuid`),
-                  sql`, `,
-                )})`,
-              ),
-            )
+            .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
+
+          const otherActiveSessions = activeSessions.filter(
+            (s) => !selectedPersonnelSet.has(s.personnelId),
+          )
+          const activePersonnelCount = Math.max(1, activeSessions.length)
 
           const [originalTask] = await txDb
             .select()
@@ -170,7 +167,11 @@ export async function POST(request: NextRequest) {
 
             await txDb
               .update(tasks)
-              .set({ colliCount: doneColli, expectedMinutes: calcExpectedMinutes(doneColli, 1), updatedAt: now })
+              .set({
+                colliCount: doneColli,
+                expectedMinutes: calcExpectedMinutes(doneColli, activePersonnelCount),
+                updatedAt: now,
+              })
               .where(eq(tasks.id, res.taskId))
 
             await txDb

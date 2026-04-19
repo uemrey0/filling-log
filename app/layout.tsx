@@ -11,6 +11,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="nl" className="h-full">
+      <head>
+        <meta name="apple-mobile-web-app-title" content="Filler Log" />
+      </head>
       <body className="h-full">
         <LanguageProvider>
           {children}
