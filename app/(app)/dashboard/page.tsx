@@ -58,6 +58,7 @@ interface TaskGroup {
   colliCount: number
   expectedMinutes: number
   taskNotes: string | null
+  hasNotes: boolean
   workDate: string
   startedAt: string
   endedAt: string | null
@@ -135,6 +136,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
         colliCount: s.colliCount,
         expectedMinutes: s.expectedMinutes,
         taskNotes: s.taskNotes,
+        hasNotes: !!(s.taskNotes && s.taskNotes.trim().length > 0),
         workDate: s.workDate,
         startedAt: s.startedAt,
         endedAt: s.endedAt,
@@ -152,6 +154,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
         group.isPaused = true
         group.pausedSince = s.pausedSince
       }
+      if (s.taskNotes && s.taskNotes.trim().length > 0) group.hasNotes = true
       if (new Date(s.startedAt) < new Date(group.startedAt)) group.startedAt = s.startedAt
     }
 
@@ -380,6 +383,7 @@ export default function DashboardPage() {
   const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [notesTask, setNotesTask] = useState<TaskGroup | null>(null)
   const [endingTask, setEndingTask] = useState<TaskGroup | null>(null)
   const [endingSaving, setEndingSaving] = useState(false)
 
@@ -725,6 +729,18 @@ export default function DashboardPage() {
                       ) : (
                         <Badge variant="green">{t('tasks.active')}</Badge>
                       )}
+                      {group.hasNotes && (
+                        <button
+                          onClick={() => setNotesTask(group)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-amber-700 bg-amber-100 hover:bg-amber-200 transition-colors"
+                          title={t('tasks.notes')}
+                          aria-label={t('tasks.notes')}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
+                          </svg>
+                        </button>
+                      )}
                       {/* Edit button */}
                       <button
                         onClick={() => void openEdit(group.taskId)}
@@ -876,6 +892,8 @@ export default function DashboardPage() {
                     plannedLabel={t('tasks.planned')}
                     duration={avgActual !== null ? formatDuration(avgActual) : null}
                     diffMinutes={group.avgPerformanceDiff}
+                    hasNotes={group.hasNotes}
+                    notesLabel={t('tasks.notes')}
                   />
                 </Link>
               )
@@ -925,6 +943,18 @@ export default function DashboardPage() {
         } : null}
         loading={endingSaving}
       />
+
+      {/* Task Notes Modal/Sheet */}
+      <ModalOrSheet open={!!notesTask} onClose={() => setNotesTask(null)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.notes')}</h2>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
+            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+              {notesTask?.taskNotes ?? t('tasks.noNotes')}
+            </p>
+          </div>
+        </div>
+      </ModalOrSheet>
 
 
       {/* Delete Confirm Modal */}

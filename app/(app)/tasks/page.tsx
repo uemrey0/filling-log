@@ -322,6 +322,7 @@ export default function TasksPage() {
                     duration={!group.isActive && totalDuration !== null ? formatDuration(totalDuration) : null}
                     diffMinutes={!group.isActive ? group.avgPerformanceDiff : null}
                     hasNotes={group.hasNotes}
+                    notesLabel={t('tasks.notes')}
                   />
                 </Link>
               )

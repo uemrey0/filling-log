@@ -17,6 +17,7 @@ interface TaskSummaryCardProps {
   duration?: string | null
   diffMinutes?: number | null
   hasNotes?: boolean
+  notesLabel?: string
   className?: string
 }
 
@@ -41,6 +42,7 @@ export function TaskSummaryCard({
   duration,
   diffMinutes,
   hasNotes = false,
+  notesLabel = 'Notes',
   className = '',
 }: TaskSummaryCardProps) {
   const endToneClass = endTime ? endToneClasses(diffMinutes) : 'text-gray-400'
@@ -57,8 +59,8 @@ export function TaskSummaryCard({
               {hasNotes && (
                 <span
                   className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 text-amber-700"
-                  aria-label="notes"
-                  title="Notes"
+                  aria-label={notesLabel}
+                  title={notesLabel}
                 >
                   <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h10" />
