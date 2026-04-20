@@ -9,14 +9,13 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
+import { TaskEditModal } from '@/components/ui/TaskEditModal'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { EndTaskModal, type EndTaskConfirmData } from '@/components/ui/EndTaskModal'
-import { PersonnelCombobox, type PersonnelChip } from '@/components/ui/PersonnelCombobox'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
-import { formatTime, formatDuration, calcExpectedMinutes } from '@/lib/business'
+import { getDepartmentLabel } from '@/lib/departments'
+import { formatTime, formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
-import type { Personnel } from '@/lib/db/schema'
 import { toast } from 'sonner'
 
 interface SessionRow {
@@ -66,6 +65,20 @@ interface TaskGroup {
   totalPausedMinutes: number
   personnel: PersonnelEntry[]
   avgPerformanceDiff: number | null
+}
+
+interface EditableTaskForModal {
+  id: string
+  department: string
+  colliCount: number
+  notes: string | null
+  sessions: Array<{
+    id: string
+    personnelId: string
+    personnelName: string
+    startedAt: string
+    endedAt: string | null
+  }>
 }
 
 interface ApiErrorPayload {
@@ -219,18 +232,23 @@ function ActiveTaskProgress({
   totalPausedMinutes: number
 }) {
   const [netElapsed, setNetElapsed] = useState(0)
+  const [nowTs, setNowTs] = useState(() => Date.now())
 
   useEffect(() => {
     const start = new Date(startedAt).getTime()
     const pausedMs = totalPausedMinutes * 60000
 
-    if (isPaused && pausedSince) {
-      const frozenAt = new Date(pausedSince).getTime()
-      setNetElapsed(Math.max(0, frozenAt - start - pausedMs))
-      return
+    const update = () => {
+      const now = Date.now()
+      setNowTs(now)
+      if (isPaused && pausedSince) {
+        const frozenAt = new Date(pausedSince).getTime()
+        setNetElapsed(Math.max(0, frozenAt - start - pausedMs))
+        return
+      }
+      setNetElapsed(Math.max(0, now - start - pausedMs))
     }
 
-    const update = () => setNetElapsed(Math.max(0, Date.now() - start - pausedMs))
     update()
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
@@ -242,6 +260,7 @@ function ActiveTaskProgress({
   const s = totalSec % 60
 
   const elapsedMin = netElapsed / 60000
+  const remainingEstimatedMinutes = Math.max(0, Math.ceil(expectedMinutes - elapsedMin))
   const progress = Math.min((elapsedMin / expectedMinutes) * 100, 100)
   const isOverdue = elapsedMin > expectedMinutes
   const isNearEnd = progress >= 80
@@ -259,6 +278,11 @@ function ActiveTaskProgress({
   const mStr = String(m).padStart(h > 0 ? 2 : 1, '0')
   const sStr = String(s).padStart(2, '0')
 
+  const startTs = new Date(startedAt).getTime()
+  const pausedMs = totalPausedMinutes * 60000
+  const livePausedMs = isPaused && pausedSince ? Math.max(0, nowTs - new Date(pausedSince).getTime()) : 0
+  const predictedEndTs = startTs + expectedMinutes * 60000 + pausedMs + livePausedMs
+
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -266,7 +290,7 @@ function ActiveTaskProgress({
           {hStr}{mStr}:{sStr}
         </span>
         <span className="text-xs text-gray-400 tabular-nums">
-          / {expectedMinutes}m
+          {formatTime(new Date(predictedEndTs))} / {remainingEstimatedMinutes}m
         </span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -283,50 +307,23 @@ function ActiveTaskProgress({
   )
 }
 
-interface EditTaskState {
-  taskId: string
-  department: string
-  colliCount: number
-  notes: string
-  workDate: string
-  startTime: string
-  selectedPersonnel: PersonnelChip[]
-}
-
 function getTodayLocalDate(): string {
   const now = new Date()
   const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
   return localTime.toISOString().slice(0, 10)
 }
 
-function toTimeInputValue(dateTime: string): string {
-  const d = new Date(dateTime)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
-}
-
-function combineDateAndTimeToIso(workDate: string, time: string): string {
-  const [hhRaw, mmRaw] = time.split(':')
-  const hh = Number(hhRaw)
-  const mm = Number(mmRaw)
-  const d = new Date(`${workDate}T00:00:00`)
-  d.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0)
-  return d.toISOString()
-}
-
 export default function DashboardPage() {
   const { t, lang } = useLanguage()
   const [sessions, setSessions] = useState<SessionRow[]>([])
-  const [personnelOptions, setPersonnelOptions] = useState<Personnel[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [statusNowTs, setStatusNowTs] = useState(() => Date.now())
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
-  const [editState, setEditState] = useState<EditTaskState | null>(null)
+  const [editTask, setEditTask] = useState<EditableTaskForModal | null>(null)
+  const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
-  const [editSaving, setEditSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [endingTask, setEndingTask] = useState<TaskGroup | null>(null)
   const [endingSaving, setEndingSaving] = useState(false)
@@ -375,38 +372,6 @@ export default function DashboardPage() {
     } finally {
       setRefreshing(false)
     }
-  }
-
-  const loadPersonnel = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/personnel?active=true')
-      if (!res.ok) return
-      const rows: Personnel[] = await res.json()
-      setPersonnelOptions(rows)
-    } catch {
-      // ignore personnel picker loading failures; task editing still works for current assignees
-    }
-  }, [])
-
-  useEffect(() => {
-    loadPersonnel()
-  }, [loadPersonnel])
-
-  const addPersonnel = async (name: string): Promise<PersonnelChip> => {
-    const res = await apiFetch('/api/personnel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fullName: name, isActive: true }),
-    })
-    if (!res.ok) {
-      const payload = await parseApiErrorPayload(res)
-      const fallback = lang === 'nl' ? 'Medewerker toevoegen mislukt.' : 'Failed to add personnel.'
-      toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
-      throw new Error(payload.error ?? fallback)
-    }
-    const created: Personnel = await res.json()
-    setPersonnelOptions((prev) => [...prev, created].sort((a, b) => a.fullName.localeCompare(b.fullName)))
-    return { id: created.id, fullName: created.fullName }
   }
 
   const doAction = async (taskId: string, action: 'end' | 'pause' | 'resume') => {
@@ -459,76 +424,29 @@ export default function DashboardPage() {
     }
   }
 
-  const openEdit = (group: TaskGroup) => {
-    const activePersonnel = group.personnel
-      .filter((p) => !p.endedAt)
-      .map((p) => ({ id: p.personnelId, fullName: p.personnelName }))
-
-    setPersonnelOptions((prev) => {
-      if (activePersonnel.length === 0) return prev
-      const existing = new Set(prev.map((p) => p.id))
-      const missing = activePersonnel
-        .filter((p) => !existing.has(p.id))
-        .map((p) => ({
-          id: p.id,
-          fullName: p.fullName,
-          isActive: true,
-          notes: null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }))
-      return missing.length > 0 ? [...prev, ...missing].sort((a, b) => a.fullName.localeCompare(b.fullName)) : prev
-    })
-
-    setEditState({
-      taskId: group.taskId,
-      department: group.department,
-      colliCount: group.colliCount,
-      notes: group.taskNotes ?? '',
-      workDate: group.workDate,
-      startTime: toTimeInputValue(group.startedAt),
-      selectedPersonnel: activePersonnel,
-    })
-  }
-
-  const saveEdit = async () => {
-    if (!editState) return
-    if (editState.selectedPersonnel.length === 0) {
-      toast.error(lang === 'nl' ? 'Selecteer minimaal één medewerker.' : 'Select at least one personnel member.')
-      return
-    }
-    if (!editState.startTime) {
-      toast.error(lang === 'nl' ? 'Vul een starttijd in.' : 'Please provide a start time.')
-      return
-    }
-
-    setEditSaving(true)
+  const openEdit = async (taskId: string) => {
+    setEditLoadingId(taskId)
     try {
-      const res = await apiFetch(`/api/tasks/${editState.taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          department: editState.department,
-          colliCount: editState.colliCount,
-          notes: editState.notes || null,
-          personnelIds: editState.selectedPersonnel.map((p) => p.id),
-          startedAt: combineDateAndTimeToIso(editState.workDate, editState.startTime),
-        }),
-      })
+      const res = await apiFetch(`/api/tasks/${taskId}`)
       if (!res.ok) {
         const payload = await parseApiErrorPayload(res)
-        const fallback = lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'
+        const fallback = lang === 'nl' ? 'Taak laden mislukt.' : 'Failed to load task.'
         toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
-        await load({ showToastOnError: false })
         return
       }
-      setEditState(null)
-      await load({ showToastOnError: false })
+      const raw = await res.json() as EditableTaskForModal
+      setEditTask({
+        id: raw.id,
+        department: raw.department,
+        colliCount: raw.colliCount,
+        notes: raw.notes ?? null,
+        sessions: raw.sessions ?? [],
+      })
     } catch {
-      const fallback = lang === 'nl' ? 'Bewerken mislukt.' : 'Update failed.'
+      const fallback = lang === 'nl' ? 'Taak laden mislukt.' : 'Failed to load task.'
       toast.error(getDashboardErrorMessage(lang, undefined, fallback))
     } finally {
-      setEditSaving(false)
+      setEditLoadingId(null)
     }
   }
 
@@ -585,10 +503,6 @@ export default function DashboardPage() {
       : lastUpdatedAgeMs !== null && lastUpdatedAgeMs > 3 * 60 * 1000
         ? '#F97316'
         : '#1C7745'
-
-  const editExpected = editState
-    ? calcExpectedMinutes(editState.colliCount, Math.max(editState.selectedPersonnel.length, 1))
-    : 0
 
   return (
     <div className="space-y-6">
@@ -758,13 +672,21 @@ export default function DashboardPage() {
                       )}
                       {/* Edit button */}
                       <button
-                        onClick={() => openEdit(group)}
+                        onClick={() => void openEdit(group.taskId)}
+                        disabled={editLoadingId === group.taskId}
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
                         title={t('tasks.editTask')}
                       >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
+                        {editLoadingId === group.taskId ? (
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        )}
                       </button>
                       {/* Delete button */}
                       <button
@@ -881,6 +803,13 @@ export default function DashboardPage() {
               const avgActual = completedPersonnel.length > 0
                 ? completedPersonnel.reduce((sum, p) => sum + p.actualMinutes!, 0) / completedPersonnel.length
                 : null
+              const expectedEndAt = new Date(
+                new Date(group.startedAt).getTime()
+                + (group.expectedMinutes + group.totalPausedMinutes) * 60000,
+              )
+              const plannedEndTime = group.endedAt
+                ? formatTime(expectedEndAt)
+                : undefined
 
               return (
                 <Link key={group.taskId} href={`/tasks/${group.taskId}`} className="block">
@@ -889,7 +818,10 @@ export default function DashboardPage() {
                     accentColor={perfColor}
                     title={personnelNames}
                     subtitle={`${getDepartmentLabel(group.department, lang)} · ${group.colliCount} ${t('tasks.colli')}`}
-                    timeRange={`${formatTime(group.startedAt)} - ${group.endedAt ? formatTime(group.endedAt) : '...'}`}
+                    startTime={formatTime(group.startedAt)}
+                    endTime={group.endedAt ? formatTime(group.endedAt) : null}
+                    plannedEndTime={plannedEndTime}
+                    plannedLabel={t('tasks.planned')}
                     duration={avgActual !== null ? formatDuration(avgActual) : null}
                     diffMinutes={group.avgPerformanceDiff}
                   />
@@ -915,89 +847,12 @@ export default function DashboardPage() {
       )}
 
       {/* Edit Task Modal */}
-      <ModalOrSheet open={!!editState} onClose={() => { setEditState(null) }}>
-        {editState && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold text-gray-900">{t('tasks.editTask')}</h2>
-
-            <PersonnelCombobox
-              personnel={personnelOptions}
-              selected={editState.selectedPersonnel}
-              onSelect={(p) =>
-                setEditState((s) => {
-                  if (!s || s.selectedPersonnel.some((x) => x.id === p.id)) return s
-                  return { ...s, selectedPersonnel: [...s.selectedPersonnel, p] }
-                })
-              }
-              onRemove={(id) =>
-                setEditState((s) => (s ? { ...s, selectedPersonnel: s.selectedPersonnel.filter((p) => p.id !== id) } : s))
-              }
-              onAddNew={addPersonnel}
-              label={t('tasks.personnel')}
-            />
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.department')}</label>
-              <select
-                value={editState.department}
-                onChange={(e) => setEditState((s) => s ? { ...s, department: e.target.value } : s)}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                {DEPARTMENT_KEYS.map((k) => (
-                  <option key={k} value={k}>{getDepartmentLabel(k, lang)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.colliCount')}</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={editState.colliCount}
-                onChange={(e) => {
-                  const digitsOnly = e.target.value.replace(/\D/g, '')
-                  const nextValue = digitsOnly === ''
-                    ? 1
-                    : Math.max(1, Math.min(9999, Number(digitsOnly)))
-                  setEditState((s) => (s ? { ...s, colliCount: nextValue } : s))
-                }}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                {lang === 'nl' ? 'Verwacht' : 'Expected'}: {editExpected}m
-              </p>
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.started')}</label>
-              <input
-                type="time"
-                value={editState.startTime}
-                onChange={(e) => setEditState((s) => (s ? { ...s, startTime: e.target.value } : s))}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('tasks.notes')}</label>
-              <textarea
-                rows={2}
-                value={editState.notes}
-                onChange={(e) => setEditState((s) => s ? { ...s, notes: e.target.value } : s)}
-                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-                placeholder={t('taskForm.notesPlaceholder')}
-              />
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <Button onClick={saveEdit} loading={editSaving} className="flex-1">{t('common.save')}</Button>
-              <Button variant="secondary" onClick={() => { setEditState(null) }} className="flex-1">{t('common.cancel')}</Button>
-            </div>
-          </div>
-        )}
-      </ModalOrSheet>
+      <TaskEditModal
+        open={!!editTask}
+        task={editTask}
+        onClose={() => setEditTask(null)}
+        onSaved={() => { void load({ showToastOnError: false }) }}
+      />
 
       {/* End Task Modal */}
       <EndTaskModal

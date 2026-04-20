@@ -72,7 +72,10 @@ export default function TaskDetailPage() {
     : null
 
   const accent = isActive ? '#80BC17' : avgDiff === null ? '#9CA3AF' : avgDiff <= 0.5 ? '#80BC17' : '#E40B17'
-  const accentSoft = isActive ? '#80BC1710' : avgDiff === null ? '#9CA3AF10' : avgDiff <= 0.5 ? '#80BC1710' : '#E40B1710'
+
+  const plannedEndLabel = earliestStart && data
+    ? formatTime(new Date(new Date(earliestStart).getTime() + data.expectedMinutes * 60_000).toISOString())
+    : null
 
   const departmentLabel = data ? getDepartmentLabel(data.department, lang) : ''
   const workDateSource = data?.sessions[0]?.workDate ?? data?.createdAt ?? null
@@ -123,18 +126,15 @@ export default function TaskDetailPage() {
           <Card padding="none" className="overflow-hidden">
             <div className="flex">
               <div className="w-1.5 bg-gray-200" />
-              <div className="flex-1 p-5 space-y-4">
-                <Skeleton className="h-3 w-20" />
-                <Skeleton className="h-12 w-40" />
+              <div className="flex-1 p-5 space-y-3">
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-4 w-32" />
                 <Skeleton className="h-10 w-full" />
               </div>
             </div>
           </Card>
-          <div className="grid grid-cols-3 gap-2">
-            <Skeleton className="h-20 rounded-xl" />
-            <Skeleton className="h-20 rounded-xl" />
-            <Skeleton className="h-20 rounded-xl" />
-          </div>
+          <Skeleton className="h-16 rounded-xl" />
         </>
       ) : !data ? (
         <div className="text-center py-20 text-gray-500">{t('common.noResults')}</div>
@@ -144,12 +144,9 @@ export default function TaskDetailPage() {
           <Card padding="none" className="overflow-hidden">
             <div className="flex">
               <div className="w-1.5 self-stretch flex-shrink-0" style={{ backgroundColor: accent }} />
-              <div className="flex-1 p-5 space-y-5" style={{ backgroundColor: accentSoft }}>
-                {/* Row 1: department + status */}
+              <div className="flex-1 p-5 space-y-4">
+                {/* Row 1: status + date */}
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-[11px] font-bold uppercase tracking-widest text-gray-500 truncate">
-                    {departmentLabel}
-                  </div>
                   <div
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider flex-shrink-0"
                     style={{
@@ -163,68 +160,91 @@ export default function TaskDetailPage() {
                     />
                     {isActive ? t('tasks.inProgress') : t('tasks.finished')}
                   </div>
-                </div>
-
-                {/* Row 2: colli count — the big number */}
-                <div className="flex items-end justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-5xl font-black text-gray-900 tabular-nums leading-none tracking-tight">
-                        {data.colliCount}
-                      </span>
-                      <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                        {t('tasks.colli')}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 text-xs text-gray-500 tabular-nums">
-                      {workDateLabel}
-                    </div>
+                  <div className="text-xs text-gray-500 tabular-nums truncate">
+                    {workDateLabel}
                   </div>
-                  {!isActive && avgDiff !== null && (
-                    <div className="flex-shrink-0 scale-110 origin-right">
-                      <PerformanceDiff diffMinutes={avgDiff} />
-                    </div>
-                  )}
                 </div>
 
-                {/* Row 3: timeline */}
+                {/* Row 2: department as title + colli */}
+                <div>
+                  <h1 className="text-2xl font-black text-gray-900 leading-tight truncate">
+                    {departmentLabel}
+                  </h1>
+                  <div className="mt-1 flex items-baseline gap-1.5">
+                    <span className="text-base font-bold text-gray-700 tabular-nums">
+                      {data.colliCount}
+                    </span>
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {t('tasks.colli')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Row 3: time range */}
                 {earliestStart && (
-                  <div className="pt-3 border-t border-gray-200/60">
-                    <TimelineRow
-                      startedAt={earliestStart}
-                      endedAt={latestEnd}
-                      isActive={isActive}
-                      accent={accent}
-                      lang={lang}
-                      startLabel={t('tasks.started')}
-                      endLabel={t('tasks.ended')}
-                    />
+                  <div className="pt-3 border-t border-gray-100 flex items-center gap-3">
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                        {t('tasks.started')}
+                      </div>
+                      <div className="text-base font-bold text-gray-900 tabular-nums leading-tight">
+                        {formatTime(earliestStart)}
+                      </div>
+                    </div>
+                    <div className="flex-1 h-px bg-gray-200" />
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                        {t('tasks.ended')}
+                      </div>
+                      <div
+                        className="text-base font-bold tabular-nums leading-tight"
+                        style={{ color: isActive ? '#9CA3AF' : '#111827' }}
+                      >
+                        {latestEnd ? formatTime(latestEnd) : '—'}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           </Card>
 
-          {/* Stats strip */}
-          <div className="grid grid-cols-3 gap-2">
-            <StatTile
-              label={t('tasks.planned')}
-              value={`${data.expectedMinutes}m`}
-              accent="#6B7280"
-            />
-            <StatTile
-              label={t('tasks.timeWorked')}
-              value={isActive ? '—' : avgActual !== null ? formatDuration(avgActual) : '—'}
-              accent={isActive ? '#9CA3AF' : '#111827'}
-              muted={isActive}
-            />
-            <StatTile
-              label={sessions.length === 1 ? t('personnel.title') : t('tasks.team')}
-              value={String(sessions.length)}
-              accent="#111827"
-              suffix={sessions.length === 1 ? '' : ''}
-            />
-          </div>
+          {/* Performance row: planned vs actual end time */}
+          <Card padding="sm">
+            <div className="flex items-center justify-between gap-3 px-1">
+              <div className="flex items-baseline gap-4">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                    {t('tasks.planned')}
+                  </div>
+                  <div className="text-lg font-bold text-gray-500 tabular-nums leading-tight">
+                    {plannedEndLabel ?? '—'}
+                  </div>
+                  <div className="text-[11px] text-gray-400 tabular-nums mt-0.5">
+                    {data.expectedMinutes}m
+                  </div>
+                </div>
+                <span className="text-gray-300 text-lg" aria-hidden="true">→</span>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                    {t('tasks.ended')}
+                  </div>
+                  <div
+                    className="text-lg font-bold tabular-nums leading-tight"
+                    style={{ color: isActive ? '#9CA3AF' : '#111827' }}
+                  >
+                    {latestEnd ? formatTime(latestEnd) : '—'}
+                  </div>
+                  <div className="text-[11px] text-gray-400 tabular-nums mt-0.5">
+                    {!isActive && avgActual !== null ? formatDuration(avgActual) : '—'}
+                  </div>
+                </div>
+              </div>
+              {!isActive && avgDiff !== null && (
+                <PerformanceDiff diffMinutes={avgDiff} />
+              )}
+            </div>
+          </Card>
 
           {/* Notes */}
           {data.notes && (
@@ -321,83 +341,3 @@ export default function TaskDetailPage() {
   )
 }
 
-function StatTile({
-  label,
-  value,
-  accent,
-  muted = false,
-  suffix = '',
-}: {
-  label: string
-  value: string
-  accent: string
-  muted?: boolean
-  suffix?: string
-}) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 flex flex-col justify-between min-h-[72px]">
-      <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 truncate">
-        {label}
-      </div>
-      <div className="mt-2 flex items-baseline gap-1">
-        <span
-          className={`text-xl font-bold tabular-nums leading-none ${muted ? 'text-gray-300' : ''}`}
-          style={muted ? undefined : { color: accent }}
-        >
-          {value}
-        </span>
-        {suffix && <span className="text-xs font-medium text-gray-400">{suffix}</span>}
-      </div>
-    </div>
-  )
-}
-
-function TimelineRow({
-  startedAt,
-  endedAt,
-  isActive,
-  accent,
-  lang,
-  startLabel,
-  endLabel,
-}: {
-  startedAt: string
-  endedAt: string | null
-  isActive: boolean
-  accent: string
-  lang: 'nl' | 'en'
-  startLabel: string
-  endLabel: string
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-shrink-0">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{startLabel}</div>
-        <div className="text-base font-bold text-gray-900 tabular-nums leading-tight">
-          {formatTime(startedAt)}
-        </div>
-      </div>
-      <div className="flex-1 relative flex items-center px-2" aria-hidden="true">
-        <div className="h-px flex-1" style={{ backgroundColor: accent, opacity: 0.4 }} />
-        {isActive ? (
-          <div className="flex items-center gap-1 px-2">
-            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: accent }} />
-            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: accent, animationDelay: '200ms' }} />
-            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: accent, animationDelay: '400ms' }} />
-          </div>
-        ) : (
-          <svg className="w-3 h-3 mx-1 flex-shrink-0" style={{ color: accent }} fill="currentColor" viewBox="0 0 24 24">
-            <path d="M14 6l6 6-6 6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          </svg>
-        )}
-        <div className="h-px flex-1" style={{ backgroundColor: accent, opacity: 0.4 }} />
-      </div>
-      <div className="flex-shrink-0 text-right">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{endLabel}</div>
-        <div className="text-base font-bold tabular-nums leading-tight" style={{ color: isActive ? '#9CA3AF' : '#111827' }}>
-          {endedAt ? formatTime(endedAt) : (lang === 'nl' ? '—' : '—')}
-        </div>
-      </div>
-    </div>
-  )
-}

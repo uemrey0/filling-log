@@ -557,7 +557,12 @@ export default function PersonnelDetailPage() {
                       accentColor={perfColor}
                       title={getDepartmentLabel(s.department, lang)}
                       subtitle={`${formatDate(s.workDate)} · ${s.colliCount} ${t('tasks.colli')}`}
-                      timeRange={`${formatTime(s.startedAt)} - ${s.endedAt ? formatTime(s.endedAt) : '...'}`}
+                      startTime={formatTime(s.startedAt)}
+                      endTime={s.endedAt ? formatTime(s.endedAt) : null}
+                      plannedEndTime={s.endedAt
+                        ? formatTime(new Date(new Date(s.startedAt).getTime() + s.expectedMinutes * 60000))
+                        : undefined}
+                      plannedLabel={t('tasks.planned')}
                       duration={s.actualMinutes !== null ? formatDuration(Number(s.actualMinutes)) : null}
                       diffMinutes={s.performanceDiff !== null ? Number(s.performanceDiff) : null}
                     />

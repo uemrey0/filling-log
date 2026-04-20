@@ -62,6 +62,7 @@ export const en: Translations = {
     actions: 'Actions',
     editCompletedHint: 'Only notes and end time can be changed for completed tasks',
     startTime: 'Start time',
+    startTimesPerPerson: 'Start time per person',
     endTime: 'End time',
     endTimesPerPerson: 'End time per person',
     invalidTimeRange: 'End time must be after start time',

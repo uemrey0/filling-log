@@ -8,7 +8,10 @@ interface TaskSummaryCardProps {
   accentColor: string
   title: string
   subtitle: string
-  timeRange: string
+  startTime: string
+  endTime?: string | null
+  plannedEndTime?: string | null
+  plannedLabel?: string
   statusLabel?: string
   statusTone?: StatusTone
   duration?: string | null
@@ -17,11 +20,22 @@ interface TaskSummaryCardProps {
   className?: string
 }
 
+function endToneClasses(diffMinutes?: number | null): string {
+  if (diffMinutes === null || diffMinutes === undefined) return 'text-gray-700'
+  const rounded = Math.round(diffMinutes * 10) / 10
+  if (Math.abs(rounded) <= 0.5) return 'text-gray-700'
+  if (rounded < 0) return 'text-[#1C7745]'
+  return 'text-[#E40B17]'
+}
+
 export function TaskSummaryCard({
   accentColor,
   title,
   subtitle,
-  timeRange,
+  startTime,
+  endTime,
+  plannedEndTime,
+  plannedLabel = 'Planned',
   statusLabel,
   statusTone = 'active',
   duration,
@@ -29,6 +43,9 @@ export function TaskSummaryCard({
   hasNotes = false,
   className = '',
 }: TaskSummaryCardProps) {
+  const endToneClass = endTime ? endToneClasses(diffMinutes) : 'text-gray-400'
+  const isOnTime =
+    diffMinutes !== null && diffMinutes !== undefined && Math.abs(Math.round(diffMinutes * 10) / 10) <= 0.5
   return (
     <Card padding="none" className={`overflow-hidden ${className}`}>
       <div className="flex">
@@ -60,7 +77,19 @@ export function TaskSummaryCard({
               )}
             </div>
             <div className="text-xs text-gray-500 mt-0.5 truncate">{subtitle}</div>
-            <div className="text-xs text-gray-400 tabular-nums mt-1">{timeRange}</div>
+            <div className="text-xs tabular-nums mt-1 flex items-center gap-1">
+              <span className="text-gray-500">{startTime}</span>
+              <span className="text-gray-300">→</span>
+              <span className={`font-medium ${endToneClass}`}>{endTime ?? '…'}</span>
+            </div>
+            {plannedEndTime && (
+              <div className="mt-1 flex items-center gap-1 text-[11px] tabular-nums text-gray-500">
+                <span className="text-gray-400">{plannedLabel}</span>
+                <span className={isOnTime ? 'text-[#1C7745] font-medium' : 'text-gray-600'}>
+                  {plannedEndTime}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex-shrink-0 flex flex-col items-end gap-1">
             {duration && (

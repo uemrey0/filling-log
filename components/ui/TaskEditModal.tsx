@@ -42,6 +42,15 @@ interface EndTimeEdit {
   value: string
 }
 
+interface StartTimeEdit {
+  personnelId: string
+  personnelName: string
+  sessionId: string | null
+  originalStartedAt: string | null
+  referenceStartedAt: string
+  value: string
+}
+
 function timeToLocalValue(iso: string): string {
   const d = new Date(iso)
   const hh = String(d.getHours()).padStart(2, '0')
@@ -63,7 +72,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   const [department, setDepartment] = useState('')
   const [colliCount, setColliCount] = useState('')
   const [notes, setNotes] = useState('')
-  const [startTime, setStartTime] = useState('')
+  const [startTimeEdits, setStartTimeEdits] = useState<StartTimeEdit[]>([])
   const [endTimeEdits, setEndTimeEdits] = useState<EndTimeEdit[]>([])
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -74,10 +83,18 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   )
   const isActive = activeSessions.length > 0
   const isCompleted = !isActive
-  const referenceStart = useMemo(
-    () => (activeSessions[0] ? new Date(activeSessions[0].startedAt) : new Date()),
-    [activeSessions],
+  const visibleStartTimeEdits = useMemo(
+    () => {
+      const byPersonnelId = new Map(startTimeEdits.map((edit) => [edit.personnelId, edit]))
+      return selectedPersonnel
+        .map((person) => byPersonnelId.get(person.id))
+        .filter((edit): edit is StartTimeEdit => Boolean(edit))
+    },
+    [selectedPersonnel, startTimeEdits],
   )
+  const canEditSingleStartTime = visibleStartTimeEdits.length === 1 && selectedPersonnel.length === 1
+  const canEditStartTimesPerSession = visibleStartTimeEdits.length > 1
+  const startErrorKey = (edit: StartTimeEdit) => `start-${edit.sessionId ?? edit.personnelId}`
 
   useEffect(() => {
     if (!open || !task) return
@@ -88,10 +105,19 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
     const active = task.sessions.filter((s) => !s.endedAt)
     if (active.length > 0) {
       setSelectedPersonnel(active.map((s) => ({ id: s.personnelId, fullName: s.personnelName })))
-      setStartTime(timeToLocalValue(active[0].startedAt))
+      setStartTimeEdits(
+        active.map((s) => ({
+          personnelId: s.personnelId,
+          personnelName: s.personnelName,
+          sessionId: s.id,
+          originalStartedAt: s.startedAt,
+          referenceStartedAt: s.startedAt,
+          value: timeToLocalValue(s.startedAt),
+        })),
+      )
     } else {
       setSelectedPersonnel([])
-      setStartTime('')
+      setStartTimeEdits([])
     }
     setEndTimeEdits(
       task.sessions
@@ -105,6 +131,51 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
         })),
     )
   }, [open, task])
+
+  useEffect(() => {
+    if (!open) return
+    const fallbackReference = activeSessions[0]?.startedAt ?? new Date().toISOString()
+    setStartTimeEdits((prev) => {
+      const prevMap = new Map(prev.map((edit) => [edit.personnelId, edit]))
+      const activeMap = new Map(activeSessions.map((session) => [session.personnelId, session]))
+      const next = selectedPersonnel.map((person) => {
+        const existing = prevMap.get(person.id)
+        const active = activeMap.get(person.id)
+        const referenceStartedAt = active?.startedAt ?? existing?.referenceStartedAt ?? fallbackReference
+        if (existing) {
+          return {
+            ...existing,
+            personnelName: person.fullName,
+            sessionId: active?.id ?? existing.sessionId,
+            originalStartedAt: active?.startedAt ?? existing.originalStartedAt,
+            referenceStartedAt,
+          }
+        }
+        return {
+          personnelId: person.id,
+          personnelName: person.fullName,
+          sessionId: active?.id ?? null,
+          originalStartedAt: active?.startedAt ?? null,
+          referenceStartedAt,
+          value: timeToLocalValue(referenceStartedAt),
+        } satisfies StartTimeEdit
+      })
+
+      const same =
+        prev.length === next.length
+        && prev.every((edit, idx) => {
+          const n = next[idx]
+          return n
+            && edit.personnelId === n.personnelId
+            && edit.personnelName === n.personnelName
+            && edit.sessionId === n.sessionId
+            && edit.originalStartedAt === n.originalStartedAt
+            && edit.referenceStartedAt === n.referenceStartedAt
+            && edit.value === n.value
+        })
+      return same ? prev : next
+    })
+  }, [open, selectedPersonnel, activeSessions])
 
   const loadPersonnel = useCallback(async () => {
     try {
@@ -142,6 +213,9 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
       if (!department) e.department = t('validation.required')
       if (!colliValid) e.colliCount = t('validation.required')
       if (selectedPersonnel.length === 0) e.personnel = t('validation.required')
+      for (const edit of visibleStartTimeEdits) {
+        if (!edit.value) e[startErrorKey(edit)] = t('validation.required')
+      }
     }
     for (const edit of endTimeEdits) {
       if (!edit.value) {
@@ -170,7 +244,6 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
         body.department = department
         body.colliCount = colliNumber
         body.personnelIds = selectedPersonnel.map((p) => p.id)
-        if (startTime) body.startedAt = localTimeToIso(startTime, referenceStart)
       }
       const changedEnds = endTimeEdits.filter((edit) => {
         if (!edit.value) return false
@@ -187,6 +260,39 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
         const data = await res.json().catch(() => ({}))
         setErrors({ submit: data.error ?? t('common.error') })
         return
+      }
+
+      if (isActive && selectedPersonnel.length > 0) {
+        const refreshedTaskRes = await apiFetch(`/api/tasks/${task.id}`)
+        if (!refreshedTaskRes.ok) {
+          const data = await refreshedTaskRes.json().catch(() => ({}))
+          setErrors({ submit: data.error ?? t('common.error') })
+          return
+        }
+        const refreshedTask = await refreshedTaskRes.json() as EditableTask
+        const activeByPersonnelId = new Map(
+          refreshedTask.sessions
+            .filter((session) => !session.endedAt)
+            .map((session) => [session.personnelId, session]),
+        )
+        for (const edit of visibleStartTimeEdits) {
+          if (!edit.value) continue
+          const targetSession = activeByPersonnelId.get(edit.personnelId)
+          if (!targetSession) continue
+          const referenceIso = edit.originalStartedAt ?? edit.referenceStartedAt
+          const newIso = localTimeToIso(edit.value, new Date(referenceIso))
+          if (new Date(newIso).getTime() === new Date(targetSession.startedAt).getTime()) continue
+          const r = await apiFetch(`/api/sessions/${targetSession.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ startedAt: newIso }),
+          })
+          if (!r.ok) {
+            const data = await r.json().catch(() => ({}))
+            setErrors({ submit: data.error ?? t('common.error') })
+            return
+          }
+        }
       }
 
       for (const edit of changedEnds) {
@@ -216,9 +322,19 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   }))
 
   const busy = saving
+  const footer = (
+    <div className="flex gap-2">
+      <Button variant="secondary" onClick={onClose} disabled={busy} className="flex-1">
+        {t('common.cancel')}
+      </Button>
+      <Button onClick={handleSave} loading={saving} disabled={busy} className="flex-1">
+        {t('tasks.saveChanges')}
+      </Button>
+    </div>
+  )
 
   return (
-    <ModalOrSheet open={open} onClose={busy ? undefined : onClose}>
+    <ModalOrSheet open={open} onClose={busy ? undefined : onClose} footer={footer}>
       <div className="space-y-5">
         <div>
           <h2 className="text-lg font-bold text-gray-900">{t('tasks.editTask')}</h2>
@@ -235,7 +351,12 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
               onSelect={(p) => setSelectedPersonnel((prev) =>
                 prev.find((x) => x.id === p.id) ? prev : [...prev, p],
               )}
-              onRemove={(id) => setSelectedPersonnel((prev) => prev.filter((p) => p.id !== id))}
+              onRemove={(id) =>
+                setSelectedPersonnel((prev) => {
+                  if (prev.length <= 1) return prev
+                  return prev.filter((p) => p.id !== id)
+                })
+              }
               onAddNew={handleAddNew}
               label={t('tasks.personnel')}
               error={errors.personnel}
@@ -284,17 +405,61 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
             </div>
           )}
 
-          {isActive && (
+          {isActive && canEditSingleStartTime ? (
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-gray-900">{t('tasks.startTime')}</label>
               <input
                 type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                value={visibleStartTimeEdits[0].value}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setStartTimeEdits((prev) =>
+                    prev.map((x) => (x.personnelId === visibleStartTimeEdits[0].personnelId ? { ...x, value: v } : x)),
+                  )
+                }}
+                className={`w-full rounded-lg border px-4 py-3 text-base md:text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
+                  errors[startErrorKey(visibleStartTimeEdits[0])] ? 'border-accent-red ring-1 ring-accent-red' : 'border-gray-300'
+                }`}
               />
+              {errors[startErrorKey(visibleStartTimeEdits[0])] && (
+                <span className="text-xs text-accent-red font-medium">
+                  {errors[startErrorKey(visibleStartTimeEdits[0])]}
+                </span>
+              )}
             </div>
-          )}
+          ) : isActive && canEditStartTimesPerSession ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-gray-900">{t('tasks.startTimesPerPerson')}</label>
+              <div className="rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+                {visibleStartTimeEdits.map((edit) => {
+                  const err = errors[startErrorKey(edit)]
+                  return (
+                    <div key={edit.personnelId} className="flex items-center gap-3 px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 truncate">{edit.personnelName}</div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <input
+                          type="time"
+                          value={edit.value}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setStartTimeEdits((prev) =>
+                              prev.map((x) => (x.personnelId === edit.personnelId ? { ...x, value: v } : x)),
+                            )
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-base md:text-sm tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
+                            err ? 'border-accent-red ring-1 ring-accent-red' : 'border-gray-300'
+                          }`}
+                        />
+                        {err && <span className="text-[11px] text-accent-red font-medium">{err}</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {endTimeEdits.length === 1 ? (
             <div className="flex flex-col gap-1.5">
@@ -306,7 +471,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
                   const v = e.target.value
                   setEndTimeEdits((prev) => prev.map((x) => ({ ...x, value: v })))
                 }}
-                className={`w-full rounded-lg border px-4 py-3 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
+                className={`w-full rounded-lg border px-4 py-3 text-base md:text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
                   errors[`end-${endTimeEdits[0].sessionId}`] ? 'border-accent-red ring-1 ring-accent-red' : 'border-gray-300'
                 }`}
               />
@@ -340,7 +505,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
                               prev.map((x) => (x.sessionId === edit.sessionId ? { ...x, value: v } : x)),
                             )
                           }}
-                          className={`rounded-lg border px-3 py-2 text-sm tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
+                          className={`rounded-lg border px-3 py-2 text-base md:text-sm tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-primary ${
                             err ? 'border-accent-red ring-1 ring-accent-red' : 'border-gray-300'
                           }`}
                         />
@@ -370,14 +535,6 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
           </div>
         )}
 
-        <div className="flex gap-2 pt-2 border-t border-gray-100">
-          <Button variant="secondary" onClick={onClose} disabled={busy} className="flex-1">
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSave} loading={saving} disabled={busy} className="flex-1">
-            {t('tasks.saveChanges')}
-          </Button>
-        </div>
       </div>
     </ModalOrSheet>
   )

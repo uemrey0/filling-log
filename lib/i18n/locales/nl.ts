@@ -60,6 +60,7 @@ export const nl = {
     actions: 'Acties',
     editCompletedHint: 'Voor afgeronde taken kunnen alleen notities en eindtijd worden aangepast',
     startTime: 'Starttijd',
+    startTimesPerPerson: 'Starttijden per persoon',
     endTime: 'Eindtijd',
     endTimesPerPerson: 'Eindtijden per persoon',
     invalidTimeRange: 'Eindtijd moet na de starttijd liggen',

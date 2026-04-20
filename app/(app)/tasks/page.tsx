@@ -25,6 +25,7 @@ interface SessionRow {
   startedAt: string
   endedAt: string | null
   isPaused: boolean
+  totalPausedMinutes: number
   workDate: string
   actualMinutes: number | null
   performanceDiff: number | null
@@ -33,8 +34,10 @@ interface SessionRow {
 interface PersonnelEntry {
   sessionId: string
   personnelName: string
+  startedAt: string
   endedAt: string | null
   isPaused: boolean
+  totalPausedMinutes: number
   actualMinutes: number | null
   performanceDiff: number | null
 }
@@ -49,6 +52,7 @@ interface TaskGroup {
   endedAt: string | null
   isActive: boolean
   isPaused: boolean
+  totalPausedMinutes: number
   hasNotes: boolean
   personnel: PersonnelEntry[]
   avgPerformanceDiff: number | null
@@ -84,6 +88,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
         endedAt: s.endedAt,
         isActive: !s.endedAt,
         isPaused: false,
+        totalPausedMinutes: Number(s.totalPausedMinutes ?? 0),
         hasNotes: !!(s.taskNotes && s.taskNotes.trim().length > 0),
         personnel: [],
         avgPerformanceDiff: null,
@@ -92,13 +97,16 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
       map.set(s.taskId, group)
     } else {
       if (!s.endedAt) group.isActive = true
+      if (new Date(s.startedAt) < new Date(group.startedAt)) group.startedAt = s.startedAt
     }
 
     group.personnel.push({
       sessionId: s.sessionId,
       personnelName: s.personnelName,
+      startedAt: s.startedAt,
       endedAt: s.endedAt,
       isPaused: s.isPaused,
+      totalPausedMinutes: Number(s.totalPausedMinutes ?? 0),
       actualMinutes: s.actualMinutes !== null ? Number(s.actualMinutes) : null,
       performanceDiff: s.performanceDiff !== null ? Number(s.performanceDiff) : null,
     })
@@ -107,6 +115,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   for (const group of map.values()) {
     group.isActive = group.personnel.some((p) => !p.endedAt)
     group.isPaused = group.isActive && group.personnel.filter((p) => !p.endedAt).every((p) => p.isPaused)
+    group.totalPausedMinutes = Math.max(...group.personnel.map((p) => p.totalPausedMinutes), 0)
     if (!group.isActive) {
       const endTimes = group.personnel.map((p) => p.endedAt).filter(Boolean) as string[]
       group.endedAt = endTimes.sort().at(-1) ?? null
@@ -280,6 +289,13 @@ export default function TasksPage() {
                 ? `${personnelNames.slice(0, 2).join(', ')} +${personnelNames.length - 2}`
                 : personnelNames.join(', ')
               const totalDuration = group.avgActualMinutes
+              const expectedEndAt = new Date(
+                new Date(group.startedAt).getTime()
+                + (group.expectedMinutes + group.totalPausedMinutes) * 60000,
+              )
+              const plannedEndTime = !group.isActive && group.endedAt
+                ? formatTime(expectedEndAt)
+                : undefined
 
               return (
                 <Link key={group.taskId} href={`/tasks/${group.taskId}`} className="block">
@@ -288,7 +304,10 @@ export default function TasksPage() {
                     accentColor={group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB')}
                     title={personnelSummary}
                     subtitle={`${departmentLabel} · ${group.colliCount} ${t('tasks.colli')}`}
-                    timeRange={`${formatTime(group.startedAt)} - ${group.endedAt ? formatTime(group.endedAt) : '...'}`}
+                    startTime={formatTime(group.startedAt)}
+                    endTime={group.endedAt ? formatTime(group.endedAt) : null}
+                    plannedEndTime={plannedEndTime}
+                    plannedLabel={t('tasks.planned')}
                     statusLabel={group.isActive ? (group.isPaused ? (lang === 'nl' ? 'Gepauzeerd' : 'Paused') : t('tasks.active')) : undefined}
                     statusTone={group.isPaused ? 'paused' : 'active'}
                     duration={!group.isActive && totalDuration !== null ? formatDuration(totalDuration) : null}
