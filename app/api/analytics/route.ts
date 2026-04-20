@@ -7,7 +7,10 @@ import {
   calcActualMinutesNet,
   roundToOne,
 } from '@/lib/business'
-import { eq, and, gte, lte, isNotNull, inArray } from 'drizzle-orm'
+import { eq, and, gte, lte, isNotNull, count, desc, inArray } from 'drizzle-orm'
+
+const ANALYTICS_BATCH_SIZE = 1000
+const ANALYTICS_MAX_ROWS = 50000
 
 type AnalyticsSessionRow = {
   taskId: string
@@ -18,7 +21,7 @@ type AnalyticsSessionRow = {
   colliCount: number
   expectedMinutes: number
   startedAt: Date
-  endedAt: Date
+  endedAt: Date | null
   totalPausedMinutes: number
 }
 
@@ -33,9 +36,9 @@ type TaskTimingSummary = {
   taskStartedAtMs: number
 }
 
-function averageRounded(values: number[]): number | null {
-  if (values.length === 0) return null
-  return roundToOne(values.reduce((sum, value) => sum + value, 0) / values.length)
+function averageRounded(sum: number, countValue: number): number | null {
+  if (countValue === 0) return null
+  return roundToOne(sum / countValue)
 }
 
 function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummary> {
@@ -56,6 +59,30 @@ function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummar
   return summaries
 }
 
+async function loadTaskTimingSummaries(
+  taskIds: string[],
+  cache: Map<string, TaskTimingSummary>,
+): Promise<void> {
+  const missingTaskIds = taskIds.filter((taskId) => !cache.has(taskId))
+  if (missingTaskIds.length === 0) return
+
+  const timingRows = await db
+    .select({
+      taskId: taskSessions.taskId,
+      colliCount: tasks.colliCount,
+      startedAt: taskSessions.startedAt,
+    })
+    .from(taskSessions)
+    .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+    .where(inArray(taskSessions.taskId, missingTaskIds)) as TaskTimingRow[]
+
+  const summaryMap = buildTaskTimingMap(timingRows)
+  for (const taskId of missingTaskIds) {
+    const summary = summaryMap.get(taskId)
+    if (summary) cache.set(taskId, summary)
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl
@@ -72,25 +99,25 @@ export async function GET(request: NextRequest) {
 
     const whereClause = and(...conditions)
 
-    const filteredRows = await db
-      .select({
-        taskId: taskSessions.taskId,
-        personnelId: taskSessions.personnelId,
-        personnelName: personnel.fullName,
-        department: tasks.department,
-        workDate: taskSessions.workDate,
-        colliCount: tasks.colliCount,
-        expectedMinutes: tasks.expectedMinutes,
-        startedAt: taskSessions.startedAt,
-        endedAt: taskSessions.endedAt,
-        totalPausedMinutes: taskSessions.totalPausedMinutes,
-      })
+    const [{ totalSessions }] = await db
+      .select({ totalSessions: count(taskSessions.id) })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
-      .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
-      .where(whereClause) as AnalyticsSessionRow[]
+      .where(whereClause)
 
-    if (filteredRows.length === 0) {
+    const totalSessionsNumber = Number(totalSessions)
+    if (totalSessionsNumber > ANALYTICS_MAX_ROWS) {
+      return Response.json(
+        {
+          error: `Analytics range too wide (${totalSessionsNumber} sessions). Narrow the date range.`,
+          code: 'ANALYTICS_RANGE_TOO_WIDE',
+          maxSessions: ANALYTICS_MAX_ROWS,
+        },
+        { status: 400 },
+      )
+    }
+
+    if (totalSessionsNumber === 0) {
       return Response.json({
         overview: {
           totalSessions: 0,
@@ -104,22 +131,58 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const taskIds = Array.from(new Set(filteredRows.map((row) => row.taskId)))
-    const timingRows = await db
-      .select({
-        taskId: taskSessions.taskId,
-        colliCount: tasks.colliCount,
-        startedAt: taskSessions.startedAt,
-      })
-      .from(taskSessions)
-      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
-      .where(inArray(taskSessions.taskId, taskIds)) as TaskTimingRow[]
+    const taskTimingCache = new Map<string, TaskTimingSummary>()
+    let processedCount = 0
+    let expectedSum = 0
+    let actualSum = 0
+    let diffSum = 0
 
-    const timingMap = buildTaskTimingMap(timingRows)
+    const byPersonnelMap = new Map<string, {
+      personnelId: string
+      personnelName: string
+      sessionCount: number
+      expectedSum: number
+      actualSum: number
+      diffSum: number
+    }>()
+    const byDepartmentMap = new Map<string, {
+      department: string
+      sessionCount: number
+      expectedSum: number
+      actualSum: number
+      diffSum: number
+    }>()
+    const dailyMap = new Map<string, { sessionCount: number; diffSum: number }>()
 
-    const sessions = filteredRows
-      .map((row) => {
-        const summary = timingMap.get(row.taskId)
+    for (let offset = 0; offset < totalSessionsNumber; offset += ANALYTICS_BATCH_SIZE) {
+      const chunk = await db
+        .select({
+          taskId: taskSessions.taskId,
+          personnelId: taskSessions.personnelId,
+          personnelName: personnel.fullName,
+          department: tasks.department,
+          workDate: taskSessions.workDate,
+          colliCount: tasks.colliCount,
+          expectedMinutes: tasks.expectedMinutes,
+          startedAt: taskSessions.startedAt,
+          endedAt: taskSessions.endedAt,
+          totalPausedMinutes: taskSessions.totalPausedMinutes,
+        })
+        .from(taskSessions)
+        .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+        .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
+        .where(whereClause)
+        .orderBy(desc(taskSessions.startedAt))
+        .limit(ANALYTICS_BATCH_SIZE)
+        .offset(offset) as AnalyticsSessionRow[]
+
+      if (chunk.length === 0) break
+
+      const taskIds = Array.from(new Set(chunk.map((row) => row.taskId)))
+      await loadTaskTimingSummaries(taskIds, taskTimingCache)
+
+      for (const row of chunk) {
+        const summary = taskTimingCache.get(row.taskId)
         const expectedSessionMinutes = calcExpectedMinutesForSession(
           summary?.projectedExpectedMinutes ?? row.expectedMinutes,
           summary?.taskStartedAtMs ?? row.startedAt,
@@ -130,110 +193,87 @@ export async function GET(request: NextRequest) {
           row.endedAt,
           Number(row.totalPausedMinutes ?? 0),
         )
-        if (actualMinutes === null) return null
+        if (actualMinutes === null) continue
 
-        return {
-          ...row,
-          expectedSessionMinutes,
-          actualMinutes,
-          diffMinutes: roundToOne(actualMinutes - expectedSessionMinutes),
+        const diffMinutes = roundToOne(actualMinutes - expectedSessionMinutes)
+        processedCount++
+        expectedSum += expectedSessionMinutes
+        actualSum += actualMinutes
+        diffSum += diffMinutes
+
+        if (!byPersonnelMap.has(row.personnelId)) {
+          byPersonnelMap.set(row.personnelId, {
+            personnelId: row.personnelId,
+            personnelName: row.personnelName,
+            sessionCount: 0,
+            expectedSum: 0,
+            actualSum: 0,
+            diffSum: 0,
+          })
         }
-      })
-      .filter((row): row is NonNullable<typeof row> => row !== null)
+        const personnelEntry = byPersonnelMap.get(row.personnelId)!
+        personnelEntry.sessionCount++
+        personnelEntry.expectedSum += expectedSessionMinutes
+        personnelEntry.actualSum += actualMinutes
+        personnelEntry.diffSum += diffMinutes
+
+        if (!byDepartmentMap.has(row.department)) {
+          byDepartmentMap.set(row.department, {
+            department: row.department,
+            sessionCount: 0,
+            expectedSum: 0,
+            actualSum: 0,
+            diffSum: 0,
+          })
+        }
+        const departmentEntry = byDepartmentMap.get(row.department)!
+        departmentEntry.sessionCount++
+        departmentEntry.expectedSum += expectedSessionMinutes
+        departmentEntry.actualSum += actualMinutes
+        departmentEntry.diffSum += diffMinutes
+
+        if (!dailyMap.has(row.workDate)) {
+          dailyMap.set(row.workDate, { sessionCount: 0, diffSum: 0 })
+        }
+        const dailyEntry = dailyMap.get(row.workDate)!
+        dailyEntry.sessionCount++
+        dailyEntry.diffSum += diffMinutes
+      }
+    }
 
     const overview = {
-      totalSessions: sessions.length,
-      avgExpectedMinutes: averageRounded(sessions.map((row) => row.expectedSessionMinutes)),
-      avgActualMinutes: averageRounded(sessions.map((row) => row.actualMinutes)),
-      avgDiffMinutes: averageRounded(sessions.map((row) => row.diffMinutes)),
+      totalSessions: processedCount,
+      avgExpectedMinutes: averageRounded(expectedSum, processedCount),
+      avgActualMinutes: averageRounded(actualSum, processedCount),
+      avgDiffMinutes: averageRounded(diffSum, processedCount),
     }
 
-    const byPersonnelMap = new Map<string, {
-      personnelId: string
-      personnelName: string
-      sessionCount: number
-      expectedValues: number[]
-      actualValues: number[]
-      diffValues: number[]
-    }>()
-    for (const row of sessions) {
-      const key = row.personnelId
-      if (!byPersonnelMap.has(key)) {
-        byPersonnelMap.set(key, {
-          personnelId: row.personnelId,
-          personnelName: row.personnelName,
-          sessionCount: 0,
-          expectedValues: [],
-          actualValues: [],
-          diffValues: [],
-        })
-      }
-      const entry = byPersonnelMap.get(key)!
-      entry.sessionCount++
-      entry.expectedValues.push(row.expectedSessionMinutes)
-      entry.actualValues.push(row.actualMinutes)
-      entry.diffValues.push(row.diffMinutes)
-    }
     const byPersonnel = Array.from(byPersonnelMap.values())
       .map((entry) => ({
         personnelId: entry.personnelId,
         personnelName: entry.personnelName,
         sessionCount: entry.sessionCount,
-        avgExpected: averageRounded(entry.expectedValues),
-        avgActual: averageRounded(entry.actualValues),
-        avgDiff: averageRounded(entry.diffValues),
+        avgExpected: averageRounded(entry.expectedSum, entry.sessionCount),
+        avgActual: averageRounded(entry.actualSum, entry.sessionCount),
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
       }))
       .sort((a, b) => (a.avgDiff ?? 0) - (b.avgDiff ?? 0))
 
-    const byDepartmentMap = new Map<string, {
-      department: string
-      sessionCount: number
-      expectedValues: number[]
-      actualValues: number[]
-      diffValues: number[]
-    }>()
-    for (const row of sessions) {
-      const key = row.department
-      if (!byDepartmentMap.has(key)) {
-        byDepartmentMap.set(key, {
-          department: row.department,
-          sessionCount: 0,
-          expectedValues: [],
-          actualValues: [],
-          diffValues: [],
-        })
-      }
-      const entry = byDepartmentMap.get(key)!
-      entry.sessionCount++
-      entry.expectedValues.push(row.expectedSessionMinutes)
-      entry.actualValues.push(row.actualMinutes)
-      entry.diffValues.push(row.diffMinutes)
-    }
     const byDepartment = Array.from(byDepartmentMap.values())
       .map((entry) => ({
         department: entry.department,
         sessionCount: entry.sessionCount,
-        avgExpected: averageRounded(entry.expectedValues),
-        avgActual: averageRounded(entry.actualValues),
-        avgDiff: averageRounded(entry.diffValues),
+        avgExpected: averageRounded(entry.expectedSum, entry.sessionCount),
+        avgActual: averageRounded(entry.actualSum, entry.sessionCount),
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
       }))
       .sort((a, b) => b.sessionCount - a.sessionCount)
 
-    const dailyMap = new Map<string, { sessionCount: number; diffValues: number[] }>()
-    for (const row of sessions) {
-      const key = row.workDate
-      if (!dailyMap.has(key)) {
-        dailyMap.set(key, { sessionCount: 0, diffValues: [] })
-      }
-      const entry = dailyMap.get(key)!
-      entry.sessionCount++
-      entry.diffValues.push(row.diffMinutes)
-    }
     const daily = Array.from(dailyMap.entries())
       .map(([date, entry]) => ({
         date,
         sessionCount: entry.sessionCount,
-        avgDiff: averageRounded(entry.diffValues),
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
       }))
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 30)

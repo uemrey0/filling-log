@@ -10,6 +10,9 @@ import {
 } from '@/lib/business'
 import { eq, desc, and, gte, lte, isNotNull, count, inArray } from 'drizzle-orm'
 
+const STATS_BATCH_SIZE = 500
+const STATS_MAX_ROWS = 10000
+
 function buildSessionSelect() {
   return {
     id: taskSessions.id,
@@ -116,61 +119,90 @@ async function getStats(personnelId: string, dateFrom?: string | null, dateTo?: 
   if (dateFrom) conditions.push(gte(taskSessions.workDate, dateFrom))
   if (dateTo) conditions.push(lte(taskSessions.workDate, dateTo))
 
-  const rows = await db
-    .select({
-      taskId: taskSessions.taskId,
-      startedAt: taskSessions.startedAt,
-      endedAt: taskSessions.endedAt,
-      totalPausedMinutes: taskSessions.totalPausedMinutes,
-      colliCount: tasks.colliCount,
-      expectedMinutes: tasks.expectedMinutes,
-    })
+  const [{ totalEndedSessions }] = await db
+    .select({ totalEndedSessions: count(taskSessions.id) })
     .from(taskSessions)
     .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
     .where(and(...conditions))
 
-  if (rows.length === 0) {
+  const totalEnded = Number(totalEndedSessions)
+  if (totalEnded === 0) {
     return { totalSessions: 0, avgDiff: null, avgActualPerColli: null }
   }
 
-  const taskIds = Array.from(new Set(rows.map((row) => row.taskId)))
-  const timingMap = await loadTaskTimingMap(taskIds)
+  const processLimit = Math.min(totalEnded, STATS_MAX_ROWS)
+  const timingMapCache = new Map<string, TaskTimingSummary>()
 
   let diffTotal = 0
   let diffCount = 0
   let actualPerColliTotal = 0
   let actualPerColliCount = 0
 
-  for (const row of rows) {
-    const summary = timingMap.get(row.taskId)
-    const expectedSessionMinutes = calcExpectedMinutesForSession(
-      summary?.projectedExpectedMinutes ?? row.expectedMinutes,
-      summary?.taskStartedAtMs ?? row.startedAt,
-      row.startedAt,
-    )
-    const actualMinutes = calcActualMinutesNet(
-      row.startedAt,
-      row.endedAt,
-      Number(row.totalPausedMinutes ?? 0),
-    )
-    if (actualMinutes === null) continue
+  for (let offset = 0; offset < processLimit; offset += STATS_BATCH_SIZE) {
+    const batchRows = await db
+      .select({
+        taskId: taskSessions.taskId,
+        startedAt: taskSessions.startedAt,
+        endedAt: taskSessions.endedAt,
+        totalPausedMinutes: taskSessions.totalPausedMinutes,
+        colliCount: tasks.colliCount,
+        expectedMinutes: tasks.expectedMinutes,
+      })
+      .from(taskSessions)
+      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+      .where(and(...conditions))
+      .orderBy(desc(taskSessions.startedAt))
+      .limit(Math.min(STATS_BATCH_SIZE, processLimit - offset))
+      .offset(offset)
 
-    const diff = roundToOne(actualMinutes - expectedSessionMinutes)
-    diffTotal += diff
-    diffCount++
+    if (batchRows.length === 0) break
 
-    if (row.colliCount > 0) {
-      actualPerColliTotal += actualMinutes / row.colliCount
-      actualPerColliCount++
+    const missingTaskIds = Array.from(
+      new Set(
+        batchRows
+          .map((row) => row.taskId)
+          .filter((taskId) => !timingMapCache.has(taskId)),
+      ),
+    )
+    if (missingTaskIds.length > 0) {
+      const loadedMap = await loadTaskTimingMap(missingTaskIds)
+      for (const [taskId, summary] of loadedMap.entries()) {
+        timingMapCache.set(taskId, summary)
+      }
+    }
+
+    for (const row of batchRows) {
+      const summary = timingMapCache.get(row.taskId)
+      const expectedSessionMinutes = calcExpectedMinutesForSession(
+        summary?.projectedExpectedMinutes ?? row.expectedMinutes,
+        summary?.taskStartedAtMs ?? row.startedAt,
+        row.startedAt,
+      )
+      const actualMinutes = calcActualMinutesNet(
+        row.startedAt,
+        row.endedAt,
+        Number(row.totalPausedMinutes ?? 0),
+      )
+      if (actualMinutes === null) continue
+
+      const diff = roundToOne(actualMinutes - expectedSessionMinutes)
+      diffTotal += diff
+      diffCount++
+
+      if (row.colliCount > 0) {
+        actualPerColliTotal += actualMinutes / row.colliCount
+        actualPerColliCount++
+      }
     }
   }
 
   return {
-    totalSessions: rows.length,
+    totalSessions: totalEnded,
     avgDiff: diffCount > 0 ? roundToOne(diffTotal / diffCount) : null,
     avgActualPerColli: actualPerColliCount > 0
       ? Math.round((actualPerColliTotal / actualPerColliCount) * 100) / 100
       : null,
+    ...(totalEnded > STATS_MAX_ROWS ? { limited: true, sampledSessions: processLimit } : {}),
   }
 }
 
