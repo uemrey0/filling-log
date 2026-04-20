@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { TaskEditModal } from '@/components/ui/TaskEditModal'
@@ -37,9 +39,14 @@ function initials(name: string) {
 export default function TaskDetailPage() {
   const { t, lang } = useLanguage()
   const params = useParams<{ id: string }>()
+  const router = useRouter()
   const [data, setData] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [editOpen, setEditOpen] = useState(false)
+  const [showActions, setShowActions] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const actionsRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     try {
@@ -51,6 +58,30 @@ export default function TaskDetailPage() {
   }, [params.id])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!showActions) return
+    const handler = (e: MouseEvent) => {
+      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+        setShowActions(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showActions])
+
+  const confirmDelete = async () => {
+    if (!data || deleting) return
+    setDeleting(true)
+    try {
+      const res = await apiFetch(`/api/tasks/${data.id}`, { method: 'DELETE' })
+      if (!res.ok) return
+      setDeleteOpen(false)
+      router.push('/tasks')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const sessions = data?.sessions ?? []
   const activeSessions = sessions.filter((s) => !s.endedAt)
@@ -118,16 +149,42 @@ export default function TaskDetailPage() {
         </div>
 
         {data && !loading ? (
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0"
-            aria-label={t('tasks.editTask')}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
+          <div ref={actionsRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setShowActions((v) => !v)}
+              className="w-9 h-9 rounded-xl border border-gray-200 bg-white text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex items-center justify-center flex-shrink-0"
+              aria-label={t('tasks.actions')}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6h.01M12 12h.01M12 18h.01" />
+              </svg>
+            </button>
+            {showActions && (
+              <div className="absolute right-0 mt-2 w-44 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-20">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditOpen(true)
+                    setShowActions(false)
+                  }}
+                  className="w-full text-left px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  {t('tasks.editTask')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(true)
+                    setShowActions(false)
+                  }}
+                  className="w-full text-left px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  {t('tasks.deleteTask')}
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="w-9 h-9 flex-shrink-0" />
         )}
@@ -349,6 +406,36 @@ export default function TaskDetailPage() {
           onSaved={load}
         />
       )}
+
+      <ModalOrSheet
+        open={deleteOpen}
+        onClose={() => {
+          if (!deleting) setDeleteOpen(false)
+        }}
+      >
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.deleteTask')}</h2>
+          <p className="text-sm text-gray-600">{t('tasks.confirmDelete')}</p>
+          <div className="flex gap-3">
+            <Button
+              variant="danger"
+              className="flex-1"
+              loading={deleting}
+              onClick={() => { void confirmDelete() }}
+            >
+              {t('common.delete')}
+            </Button>
+            <Button
+              variant="secondary"
+              className="flex-1"
+              disabled={deleting}
+              onClick={() => setDeleteOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+          </div>
+        </div>
+      </ModalOrSheet>
     </div>
   )
 }
