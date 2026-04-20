@@ -2,63 +2,176 @@ import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { personnel, taskSessions, tasks } from '@/lib/db/schema'
 import { personnelSchema } from '@/lib/validations'
-import { eq, desc, sql, and, gte, lte, isNotNull, count } from 'drizzle-orm'
+import {
+  calcTaskProjectedExpectedMinutes,
+  calcExpectedMinutesForSession,
+  calcActualMinutesNet,
+  roundToOne,
+} from '@/lib/business'
+import { eq, desc, and, gte, lte, isNotNull, count, inArray } from 'drizzle-orm'
 
 function buildSessionSelect() {
   return {
     id: taskSessions.id,
     startedAt: taskSessions.startedAt,
     endedAt: taskSessions.endedAt,
+    totalPausedMinutes: taskSessions.totalPausedMinutes,
     workDate: taskSessions.workDate,
     taskId: taskSessions.taskId,
     department: tasks.department,
     colliCount: tasks.colliCount,
     expectedMinutes: tasks.expectedMinutes,
-    actualMinutes: sql<number | null>`
-      CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-      THEN ROUND((
-        EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-        - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-      )::numeric, 1)
-      ELSE NULL END`,
-    performanceDiff: sql<number | null>`
-      CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-      THEN ROUND((
-        EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-        - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-        - ${tasks.expectedMinutes}
-      )::numeric, 1)
-      ELSE NULL END`,
   }
 }
 
+type SessionRow = {
+  id: string
+  startedAt: Date
+  endedAt: Date | null
+  totalPausedMinutes: number
+  workDate: string
+  taskId: string
+  department: string
+  colliCount: number
+  expectedMinutes: number
+}
+
+type TaskTimingRow = {
+  taskId: string
+  colliCount: number
+  startedAt: Date
+}
+
+type TaskTimingSummary = {
+  projectedExpectedMinutes: number
+  taskStartedAtMs: number
+}
+
+function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummary> {
+  const byTask = new Map<string, TaskTimingRow[]>()
+  for (const row of rows) {
+    if (!byTask.has(row.taskId)) byTask.set(row.taskId, [])
+    byTask.get(row.taskId)!.push(row)
+  }
+
+  const summaries = new Map<string, TaskTimingSummary>()
+  for (const [taskId, taskRows] of byTask.entries()) {
+    const summary = calcTaskProjectedExpectedMinutes(
+      taskRows[0]!.colliCount,
+      taskRows.map((r) => r.startedAt),
+    )
+    if (summary) summaries.set(taskId, summary)
+  }
+
+  return summaries
+}
+
+async function loadTaskTimingMap(taskIds: string[]): Promise<Map<string, TaskTimingSummary>> {
+  if (taskIds.length === 0) return new Map()
+
+  const timingRows = await db
+    .select({
+      taskId: taskSessions.taskId,
+      colliCount: tasks.colliCount,
+      startedAt: taskSessions.startedAt,
+    })
+    .from(taskSessions)
+    .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+    .where(inArray(taskSessions.taskId, taskIds))
+
+  return buildTaskTimingMap(timingRows)
+}
+
+function enrichSessionsWithProjectedMetrics(
+  sessions: SessionRow[],
+  timingMap: Map<string, TaskTimingSummary>,
+) {
+  return sessions.map((session) => {
+    const summary = timingMap.get(session.taskId)
+    const expectedSessionMinutes = calcExpectedMinutesForSession(
+      summary?.projectedExpectedMinutes ?? session.expectedMinutes,
+      summary?.taskStartedAtMs ?? session.startedAt,
+      session.startedAt,
+    )
+    const actualMinutes = calcActualMinutesNet(
+      session.startedAt,
+      session.endedAt,
+      Number(session.totalPausedMinutes ?? 0),
+    )
+    const performanceDiff = actualMinutes !== null
+      ? roundToOne(actualMinutes - expectedSessionMinutes)
+      : null
+
+    return {
+      ...session,
+      expectedSessionMinutes,
+      actualMinutes,
+      performanceDiff,
+    }
+  })
+}
+
 async function getStats(personnelId: string, dateFrom?: string | null, dateTo?: string | null) {
-  const conditions = [
-    eq(taskSessions.personnelId, personnelId),
-    isNotNull(taskSessions.endedAt),
-  ]
+  const conditions = [eq(taskSessions.personnelId, personnelId), isNotNull(taskSessions.endedAt)]
   if (dateFrom) conditions.push(gte(taskSessions.workDate, dateFrom))
   if (dateTo) conditions.push(lte(taskSessions.workDate, dateTo))
 
-  const [row] = await db
+  const rows = await db
     .select({
-      totalSessions: count(taskSessions.id),
-      avgDiff: sql<number | null>`ROUND(AVG(
-        EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-        - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-        - ${tasks.expectedMinutes}
-      )::numeric, 1)`,
-      avgActualPerColli: sql<number | null>`ROUND(AVG(
-        (EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-        - COALESCE(${taskSessions.totalPausedMinutes}, 0))
-        / NULLIF(${tasks.colliCount}, 0)
-      )::numeric, 2)`,
+      taskId: taskSessions.taskId,
+      startedAt: taskSessions.startedAt,
+      endedAt: taskSessions.endedAt,
+      totalPausedMinutes: taskSessions.totalPausedMinutes,
+      colliCount: tasks.colliCount,
+      expectedMinutes: tasks.expectedMinutes,
     })
     .from(taskSessions)
     .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
     .where(and(...conditions))
 
-  return row
+  if (rows.length === 0) {
+    return { totalSessions: 0, avgDiff: null, avgActualPerColli: null }
+  }
+
+  const taskIds = Array.from(new Set(rows.map((row) => row.taskId)))
+  const timingMap = await loadTaskTimingMap(taskIds)
+
+  let diffTotal = 0
+  let diffCount = 0
+  let actualPerColliTotal = 0
+  let actualPerColliCount = 0
+
+  for (const row of rows) {
+    const summary = timingMap.get(row.taskId)
+    const expectedSessionMinutes = calcExpectedMinutesForSession(
+      summary?.projectedExpectedMinutes ?? row.expectedMinutes,
+      summary?.taskStartedAtMs ?? row.startedAt,
+      row.startedAt,
+    )
+    const actualMinutes = calcActualMinutesNet(
+      row.startedAt,
+      row.endedAt,
+      Number(row.totalPausedMinutes ?? 0),
+    )
+    if (actualMinutes === null) continue
+
+    const diff = roundToOne(actualMinutes - expectedSessionMinutes)
+    diffTotal += diff
+    diffCount++
+
+    if (row.colliCount > 0) {
+      actualPerColliTotal += actualMinutes / row.colliCount
+      actualPerColliCount++
+    }
+  }
+
+  return {
+    totalSessions: rows.length,
+    avgDiff: diffCount > 0 ? roundToOne(diffTotal / diffCount) : null,
+    avgActualPerColli: actualPerColliCount > 0
+      ? Math.round((actualPerColliTotal / actualPerColliCount) * 100) / 100
+      : null,
+  }
 }
 
 export async function GET(
@@ -86,7 +199,7 @@ export async function GET(
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
       .where(and(...sessionConditions))
 
-    const sessions = await db
+    const rawSessions = await db
       .select(buildSessionSelect())
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
@@ -94,6 +207,10 @@ export async function GET(
       .orderBy(desc(taskSessions.startedAt))
       .limit(limit)
       .offset((page - 1) * limit)
+
+    const taskIds = Array.from(new Set(rawSessions.map((session) => session.taskId)))
+    const timingMap = await loadTaskTimingMap(taskIds)
+    const sessions = enrichSessionsWithProjectedMetrics(rawSessions as SessionRow[], timingMap)
 
     const stats = await getStats(id, dateFrom, dateTo)
 

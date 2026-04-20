@@ -9,7 +9,7 @@ import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { TaskEditModal } from '@/components/ui/TaskEditModal'
 import { getDepartmentLabel } from '@/lib/departments'
-import { formatTime, formatDate, formatDuration } from '@/lib/business'
+import { formatTime, formatDate, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 import type { Task } from '@/lib/db/schema'
 
@@ -19,7 +19,9 @@ interface SessionDetail {
   personnelName: string
   startedAt: string
   endedAt: string | null
+  totalPausedMinutes: number
   workDate: string
+  expectedSessionMinutes: number
   actualMinutes: number | null
   performanceDiff: number | null
 }
@@ -73,8 +75,18 @@ export default function TaskDetailPage() {
 
   const accent = isActive ? '#80BC17' : avgDiff === null ? '#9CA3AF' : avgDiff <= 0.5 ? '#80BC17' : '#E40B17'
 
-  const plannedEndLabel = earliestStart && data
-    ? formatTime(new Date(new Date(earliestStart).getTime() + data.expectedMinutes * 60_000).toISOString())
+  const plannedEndTs = (() => {
+    if (!data) return []
+    const startTimes = sessions.map((s) => s.startedAt)
+    const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
+    if (!Number.isFinite(anchorTs)) return []
+
+    const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(data.colliCount, startTimes)
+    const pausedMinutes = Math.max(...sessions.map((s) => Number(s.totalPausedMinutes ?? 0)), 0)
+    return [anchorTs + (projectedExpectedMinutes + pausedMinutes) * 60_000]
+  })()
+  const plannedEndLabel = plannedEndTs.length > 0
+    ? formatTime(new Date(Math.max(...plannedEndTs)).toISOString())
     : null
 
   const departmentLabel = data ? getDepartmentLabel(data.department, lang) : ''
@@ -340,4 +352,3 @@ export default function TaskDetailPage() {
     </div>
   )
 }
-

@@ -2,12 +2,79 @@ import { NextRequest } from 'next/server'
 import { db, withTransaction } from '@/lib/db'
 import { tasks, taskSessions, personnel } from '@/lib/db/schema'
 import { startTaskSchema } from '@/lib/validations'
-import { calcExpectedMinutes, todayDate } from '@/lib/business'
+import {
+  calcExpectedMinutes,
+  calcTaskProjectedExpectedMinutes,
+  calcExpectedMinutesForSession,
+  calcActualMinutesNet,
+  roundToOne,
+  todayDate,
+} from '@/lib/business'
 import { eq, desc, isNull, sql, and, gte, lte, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from '@/lib/db/schema'
 import type { ClientBase } from 'pg'
 import type { NodePgClient } from 'drizzle-orm/node-postgres'
+
+type SessionRow = {
+  sessionId: string
+  taskId: string
+  department: string
+  colliCount: number
+  expectedMinutes: number
+  taskNotes: string | null
+  personnelId: string
+  personnelName: string
+  startedAt: Date
+  endedAt: Date | null
+  isPaused: boolean
+  pausedSince: Date | null
+  totalPausedMinutes: number
+  workDate: string
+}
+
+function withProjectedMetrics(rows: SessionRow[]) {
+  const taskSummaries = new Map<string, { projectedExpectedMinutes: number; taskStartedAtMs: number }>()
+
+  const byTask = new Map<string, SessionRow[]>()
+  for (const row of rows) {
+    if (!byTask.has(row.taskId)) byTask.set(row.taskId, [])
+    byTask.get(row.taskId)!.push(row)
+  }
+
+  for (const [taskId, taskRows] of byTask.entries()) {
+    const summary = calcTaskProjectedExpectedMinutes(
+      taskRows[0]!.colliCount,
+      taskRows.map((r) => r.startedAt),
+    )
+    if (summary) taskSummaries.set(taskId, summary)
+  }
+
+  return rows.map((row) => {
+    const summary = taskSummaries.get(row.taskId)
+    const projectedExpected = summary?.projectedExpectedMinutes ?? row.expectedMinutes
+    const expectedSessionMinutes = calcExpectedMinutesForSession(
+      projectedExpected,
+      summary?.taskStartedAtMs ?? row.startedAt,
+      row.startedAt,
+    )
+    const actualMinutes = calcActualMinutesNet(
+      row.startedAt,
+      row.endedAt,
+      Number(row.totalPausedMinutes ?? 0),
+    )
+    const performanceDiff = actualMinutes !== null
+      ? roundToOne(actualMinutes - expectedSessionMinutes)
+      : null
+
+    return {
+      ...row,
+      expectedSessionMinutes,
+      actualMinutes,
+      performanceDiff,
+    }
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -54,21 +121,6 @@ export async function GET(request: NextRequest) {
       pausedSince: taskSessions.pausedSince,
       totalPausedMinutes: taskSessions.totalPausedMinutes,
       workDate: taskSessions.workDate,
-      actualMinutes: sql<number | null>`
-        CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-        THEN ROUND((
-          EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-          - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-        )::numeric, 1)
-        ELSE NULL END`,
-      performanceDiff: sql<number | null>`
-        CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-        THEN ROUND((
-          EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-          - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-          - ${tasks.expectedMinutes}
-        )::numeric, 1)
-        ELSE NULL END`,
     }
 
     if (todayOnly) {
@@ -80,7 +132,8 @@ export async function GET(request: NextRequest) {
         .where(whereClause)
         .orderBy(desc(taskSessions.startedAt))
 
-      return Response.json({ sessions: rows, total: rows.length, page: 1, pageSize: rows.length })
+      const sessions = withProjectedMetrics(rows as SessionRow[])
+      return Response.json({ sessions, total: sessions.length, page: 1, pageSize: sessions.length })
     }
 
     // Paginate by distinct task
@@ -114,7 +167,8 @@ export async function GET(request: NextRequest) {
       .where(inArray(taskSessions.taskId, pagedTaskIds))
       .orderBy(desc(taskSessions.startedAt))
 
-    return Response.json({ sessions: rows, total: Number(total), page, pageSize })
+    const sessions = withProjectedMetrics(rows as SessionRow[])
+    return Response.json({ sessions, total: Number(total), page, pageSize })
   } catch (err) {
     console.error('[GET /api/tasks]', err)
     return Response.json({ error: 'Failed to fetch tasks', detail: String(err) }, { status: 500 })

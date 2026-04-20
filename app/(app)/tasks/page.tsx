@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
 import { getDepartmentLabel } from '@/lib/departments'
-import { formatTime, formatDuration } from '@/lib/business'
+import { formatTime, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
 const PAGE_SIZE = 20
@@ -20,6 +20,7 @@ interface SessionRow {
   department: string
   colliCount: number
   expectedMinutes: number
+  expectedSessionMinutes: number
   taskNotes: string | null
   personnelName: string
   startedAt: string
@@ -36,6 +37,7 @@ interface PersonnelEntry {
   personnelName: string
   startedAt: string
   endedAt: string | null
+  expectedSessionMinutes: number
   isPaused: boolean
   totalPausedMinutes: number
   actualMinutes: number | null
@@ -105,6 +107,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
       personnelName: s.personnelName,
       startedAt: s.startedAt,
       endedAt: s.endedAt,
+      expectedSessionMinutes: Number(s.expectedSessionMinutes ?? s.expectedMinutes),
       isPaused: s.isPaused,
       totalPausedMinutes: Number(s.totalPausedMinutes ?? 0),
       actualMinutes: s.actualMinutes !== null ? Number(s.actualMinutes) : null,
@@ -135,6 +138,15 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   }
 
   return Array.from(map.values())
+}
+
+function getPlannedEndTsForGroup(group: TaskGroup): number | null {
+  const startTimes = group.personnel.map((p) => p.startedAt)
+  const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
+  if (!Number.isFinite(anchorTs)) return null
+
+  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(group.colliCount, startTimes)
+  return anchorTs + (projectedExpectedMinutes + group.totalPausedMinutes) * 60000
 }
 
 export default function TasksPage() {
@@ -289,12 +301,9 @@ export default function TasksPage() {
                 ? `${personnelNames.slice(0, 2).join(', ')} +${personnelNames.length - 2}`
                 : personnelNames.join(', ')
               const totalDuration = group.avgActualMinutes
-              const expectedEndAt = new Date(
-                new Date(group.startedAt).getTime()
-                + (group.expectedMinutes + group.totalPausedMinutes) * 60000,
-              )
+              const plannedEndTs = getPlannedEndTsForGroup(group)
               const plannedEndTime = !group.isActive && group.endedAt
-                ? formatTime(expectedEndAt)
+                ? (plannedEndTs ? formatTime(new Date(plannedEndTs)) : undefined)
                 : undefined
 
               return (

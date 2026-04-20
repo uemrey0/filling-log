@@ -14,7 +14,7 @@ import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { EndTaskModal, type EndTaskConfirmData } from '@/components/ui/EndTaskModal'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel } from '@/lib/departments'
-import { formatTime, formatDuration } from '@/lib/business'
+import { formatTime, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 import { toast } from 'sonner'
 
@@ -24,6 +24,7 @@ interface SessionRow {
   department: string
   colliCount: number
   expectedMinutes: number
+  expectedSessionMinutes: number
   taskNotes: string | null
   personnelId: string
   personnelName: string
@@ -43,6 +44,7 @@ interface PersonnelEntry {
   personnelName: string
   startedAt: string
   endedAt: string | null
+  expectedSessionMinutes: number
   isPaused: boolean
   pausedSince: string | null
   totalPausedMinutes: number
@@ -159,6 +161,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
       personnelName: s.personnelName,
       startedAt: s.startedAt,
       endedAt: s.endedAt,
+      expectedSessionMinutes: Number(s.expectedSessionMinutes ?? s.expectedMinutes),
       isPaused: s.isPaused,
       pausedSince: s.pausedSince,
       totalPausedMinutes: Number(s.totalPausedMinutes ?? 0),
@@ -170,7 +173,10 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   for (const group of map.values()) {
     group.isActive = group.personnel.some((p) => !p.endedAt)
     group.isPaused = group.isActive && group.personnel.filter((p) => !p.endedAt).every((p) => p.isPaused)
-    group.totalPausedMinutes = group.personnel[0]?.totalPausedMinutes ?? 0
+    const pauseSource = group.isActive
+      ? group.personnel.filter((p) => !p.endedAt)
+      : group.personnel
+    group.totalPausedMinutes = Math.max(...pauseSource.map((p) => p.totalPausedMinutes), 0)
 
     if (!group.isActive) {
       const endTimes = group.personnel.map((p) => p.endedAt).filter(Boolean) as string[]
@@ -186,6 +192,24 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
   }
 
   return Array.from(map.values())
+}
+
+function getPlannedEndTsForGroup(group: TaskGroup): number | null {
+  const startTimes = group.personnel.map((p) => p.startedAt)
+  const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
+  if (!Number.isFinite(anchorTs)) return null
+
+  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(group.colliCount, startTimes)
+  return anchorTs + (projectedExpectedMinutes + group.totalPausedMinutes) * 60000
+}
+
+function getProjectedExpectedMinutesForGroup(group: TaskGroup): number {
+  const activeSessions = group.personnel.filter((p) => !p.endedAt)
+  const source = activeSessions.length > 0 ? activeSessions : group.personnel
+  return calcExpectedMinutesFromSessionStarts(
+    group.colliCount,
+    source.map((p) => p.startedAt),
+  )
 }
 
 function LiveClock() {
@@ -219,40 +243,71 @@ function LiveClock() {
 }
 
 function ActiveTaskProgress({
-  startedAt,
-  expectedMinutes,
+  personnel,
+  colliCount,
   isPaused,
-  pausedSince,
-  totalPausedMinutes,
 }: {
-  startedAt: string
-  expectedMinutes: number
+  personnel: PersonnelEntry[]
+  colliCount: number
   isPaused: boolean
-  pausedSince: string | null
-  totalPausedMinutes: number
 }) {
   const [netElapsed, setNetElapsed] = useState(0)
+  const [expectedMinutes, setExpectedMinutes] = useState(0)
+  const [predictedEndTs, setPredictedEndTs] = useState<number | null>(null)
   const [nowTs, setNowTs] = useState(() => Date.now())
 
   useEffect(() => {
-    const start = new Date(startedAt).getTime()
-    const pausedMs = totalPausedMinutes * 60000
+    const activeSessions = personnel.filter((p) => !p.endedAt)
+    if (activeSessions.length === 0) {
+      setNetElapsed(0)
+      setExpectedMinutes(0)
+      setPredictedEndTs(null)
+      return
+    }
+
+    const startTs = Math.min(
+      ...activeSessions
+        .map((p) => new Date(p.startedAt).getTime())
+        .filter((ts) => Number.isFinite(ts)),
+    )
+    if (!Number.isFinite(startTs)) {
+      setNetElapsed(0)
+      setExpectedMinutes(0)
+      setPredictedEndTs(null)
+      return
+    }
+
+    const projectedExpected = calcExpectedMinutesFromSessionStarts(
+      colliCount,
+      activeSessions.map((p) => p.startedAt),
+    )
+    const pausedMinutes = Math.max(...activeSessions.map((p) => Number(p.totalPausedMinutes ?? 0)), 0)
+    const pausedMs = pausedMinutes * 60000
+    const pausedSinceTs = isPaused
+      ? activeSessions
+        .map((p) => (p.pausedSince ? new Date(p.pausedSince).getTime() : null))
+        .filter((ts): ts is number => ts !== null && Number.isFinite(ts))
+        .sort((a, b) => a - b)[0] ?? null
+      : null
 
     const update = () => {
       const now = Date.now()
       setNowTs(now)
-      if (isPaused && pausedSince) {
-        const frozenAt = new Date(pausedSince).getTime()
-        setNetElapsed(Math.max(0, frozenAt - start - pausedMs))
-        return
-      }
-      setNetElapsed(Math.max(0, now - start - pausedMs))
+
+      const frozenAt = isPaused && pausedSinceTs ? pausedSinceTs : now
+      const elapsedMs = Math.max(0, frozenAt - startTs - pausedMs)
+      const livePausedMs = isPaused && pausedSinceTs ? Math.max(0, now - pausedSinceTs) : 0
+      const projectedEnd = startTs + projectedExpected * 60000 + pausedMs + livePausedMs
+
+      setNetElapsed(elapsedMs)
+      setExpectedMinutes(projectedExpected)
+      setPredictedEndTs(projectedEnd)
     }
 
     update()
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
-  }, [startedAt, isPaused, pausedSince, totalPausedMinutes])
+  }, [personnel, colliCount, isPaused])
 
   const totalSec = Math.floor(netElapsed / 1000)
   const h = Math.floor(totalSec / 3600)
@@ -260,9 +315,14 @@ function ActiveTaskProgress({
   const s = totalSec % 60
 
   const elapsedMin = netElapsed / 60000
-  const remainingEstimatedMinutes = Math.max(0, Math.ceil(expectedMinutes - elapsedMin))
-  const progress = Math.min((elapsedMin / expectedMinutes) * 100, 100)
-  const isOverdue = elapsedMin > expectedMinutes
+  const expectedMin = expectedMinutes
+  const remainingEstimatedMinutes = predictedEndTs === null
+    ? 0
+    : Math.max(0, Math.ceil((predictedEndTs - nowTs) / 60000))
+  const progress = expectedMin > 0
+    ? Math.min((elapsedMin / expectedMin) * 100, 100)
+    : 100
+  const isOverdue = predictedEndTs !== null && nowTs > predictedEndTs
   const isNearEnd = progress >= 80
 
   const timerColor = isPaused ? '#9CA3AF'
@@ -278,11 +338,6 @@ function ActiveTaskProgress({
   const mStr = String(m).padStart(h > 0 ? 2 : 1, '0')
   const sStr = String(s).padStart(2, '0')
 
-  const startTs = new Date(startedAt).getTime()
-  const pausedMs = totalPausedMinutes * 60000
-  const livePausedMs = isPaused && pausedSince ? Math.max(0, nowTs - new Date(pausedSince).getTime()) : 0
-  const predictedEndTs = startTs + expectedMinutes * 60000 + pausedMs + livePausedMs
-
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -290,7 +345,7 @@ function ActiveTaskProgress({
           {hStr}{mStr}:{sStr}
         </span>
         <span className="text-xs text-gray-400 tabular-nums">
-          {formatTime(new Date(predictedEndTs))} / {remainingEstimatedMinutes}m
+          {predictedEndTs ? formatTime(new Date(predictedEndTs)) : '--:--'} / {remainingEstimatedMinutes}m
         </span>
       </div>
       <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -301,7 +356,7 @@ function ActiveTaskProgress({
       </div>
       <div className="flex justify-between text-xs text-gray-400">
         <span>{Math.round(progress)}%</span>
-        {isOverdue && <span style={{ color: '#E40B17' }} className="font-medium">+{Math.floor(elapsedMin - expectedMinutes)}m over</span>}
+        {isOverdue && <span style={{ color: '#E40B17' }} className="font-medium">+{Math.floor(elapsedMin - expectedMin)}m over</span>}
       </div>
     </div>
   )
@@ -715,16 +770,16 @@ export default function DashboardPage() {
                     <span className="text-gray-300">·</span>
                     <span>{group.colliCount} {t('tasks.colli')}</span>
                     <span className="text-gray-300">·</span>
-                    <span>{group.expectedMinutes}m {lang === 'nl' ? 'verwacht' : 'expected'}</span>
+                    <span>
+                      {getProjectedExpectedMinutesForGroup(group)}m {lang === 'nl' ? 'verwacht' : 'expected'}
+                    </span>
                   </div>
 
                   {/* Row 3: Timer + progress */}
                   <ActiveTaskProgress
-                    startedAt={group.startedAt}
-                    expectedMinutes={group.expectedMinutes}
+                    personnel={group.personnel}
+                    colliCount={group.colliCount}
                     isPaused={group.isPaused}
-                    pausedSince={group.pausedSince}
-                    totalPausedMinutes={group.totalPausedMinutes}
                   />
 
                   {/* Row 4: Footer — start time + actions */}
@@ -803,12 +858,9 @@ export default function DashboardPage() {
               const avgActual = completedPersonnel.length > 0
                 ? completedPersonnel.reduce((sum, p) => sum + p.actualMinutes!, 0) / completedPersonnel.length
                 : null
-              const expectedEndAt = new Date(
-                new Date(group.startedAt).getTime()
-                + (group.expectedMinutes + group.totalPausedMinutes) * 60000,
-              )
+              const plannedEndTs = getPlannedEndTsForGroup(group)
               const plannedEndTime = group.endedAt
-                ? formatTime(expectedEndAt)
+                ? (plannedEndTs ? formatTime(new Date(plannedEndTs)) : undefined)
                 : undefined
 
               return (

@@ -26,6 +26,7 @@ interface SessionDetail {
   department: string
   colliCount: number
   expectedMinutes: number
+  expectedSessionMinutes?: number
   actualMinutes: number | null
   performanceDiff: number | null
 }
@@ -560,7 +561,10 @@ export default function PersonnelDetailPage() {
                       startTime={formatTime(s.startedAt)}
                       endTime={s.endedAt ? formatTime(s.endedAt) : null}
                       plannedEndTime={s.endedAt
-                        ? formatTime(new Date(new Date(s.startedAt).getTime() + s.expectedMinutes * 60000))
+                        ? formatTime(new Date(
+                          new Date(s.startedAt).getTime()
+                          + Number(s.expectedSessionMinutes ?? s.expectedMinutes) * 60000,
+                        ))
                         : undefined}
                       plannedLabel={t('tasks.planned')}
                       duration={s.actualMinutes !== null ? formatDuration(Number(s.actualMinutes)) : null}

@@ -1,8 +1,15 @@
 import { NextRequest } from 'next/server'
 import { db, withTransaction } from '@/lib/db'
 import { tasks, taskSessions, personnel } from '@/lib/db/schema'
-import { calcExpectedMinutes, todayDate } from '@/lib/business'
-import { eq, sql, and, isNull, inArray } from 'drizzle-orm'
+import {
+  calcExpectedMinutes,
+  calcTaskProjectedExpectedMinutes,
+  calcExpectedMinutesForSession,
+  calcActualMinutesNet,
+  roundToOne,
+  todayDate,
+} from '@/lib/business'
+import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { DEPARTMENT_KEYS, type DepartmentKey } from '@/lib/departments'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -40,28 +47,42 @@ export async function GET(
         personnelName: personnel.fullName,
         startedAt: taskSessions.startedAt,
         endedAt: taskSessions.endedAt,
+        totalPausedMinutes: taskSessions.totalPausedMinutes,
         workDate: taskSessions.workDate,
-        actualMinutes: sql<number | null>`
-          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND((
-            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-          )::numeric, 1)
-          ELSE NULL END`,
-        performanceDiff: sql<number | null>`
-          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND((
-            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-            - ${task.expectedMinutes}
-          )::numeric, 1)
-          ELSE NULL END`,
       })
       .from(taskSessions)
       .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
       .where(eq(taskSessions.taskId, id))
 
-    return Response.json({ ...task, sessions })
+    const summary = calcTaskProjectedExpectedMinutes(
+      task.colliCount,
+      sessions.map((s) => s.startedAt),
+    )
+
+    const enrichedSessions = sessions.map((session) => {
+      const expectedSessionMinutes = calcExpectedMinutesForSession(
+        summary?.projectedExpectedMinutes ?? task.expectedMinutes,
+        summary?.taskStartedAtMs ?? session.startedAt,
+        session.startedAt,
+      )
+      const actualMinutes = calcActualMinutesNet(
+        session.startedAt,
+        session.endedAt,
+        Number(session.totalPausedMinutes ?? 0),
+      )
+      const performanceDiff = actualMinutes !== null
+        ? roundToOne(actualMinutes - expectedSessionMinutes)
+        : null
+
+      return {
+        ...session,
+        expectedSessionMinutes,
+        actualMinutes,
+        performanceDiff,
+      }
+    })
+
+    return Response.json({ ...task, sessions: enrichedSessions })
   } catch {
     return Response.json({ error: 'Failed to fetch task' }, { status: 500 })
   }
