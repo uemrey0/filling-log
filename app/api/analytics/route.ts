@@ -1,7 +1,87 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, taskSessions, personnel } from '@/lib/db/schema'
-import { eq, sql, and, gte, lte, isNotNull, count } from 'drizzle-orm'
+import {
+  calcTaskProjectedExpectedMinutes,
+  calcExpectedMinutesForSession,
+  calcActualMinutesNet,
+  roundToOne,
+} from '@/lib/business'
+import { eq, and, gte, lte, isNotNull, count, desc, inArray } from 'drizzle-orm'
+
+const ANALYTICS_BATCH_SIZE = 1000
+const ANALYTICS_MAX_ROWS = 50000
+
+type AnalyticsSessionRow = {
+  taskId: string
+  personnelId: string
+  personnelName: string
+  department: string
+  workDate: string
+  colliCount: number
+  expectedMinutes: number
+  startedAt: Date
+  endedAt: Date | null
+  totalPausedMinutes: number
+}
+
+type TaskTimingRow = {
+  taskId: string
+  colliCount: number
+  startedAt: Date
+}
+
+type TaskTimingSummary = {
+  projectedExpectedMinutes: number
+  taskStartedAtMs: number
+}
+
+function averageRounded(sum: number, countValue: number): number | null {
+  if (countValue === 0) return null
+  return roundToOne(sum / countValue)
+}
+
+function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummary> {
+  const byTask = new Map<string, TaskTimingRow[]>()
+  for (const row of rows) {
+    if (!byTask.has(row.taskId)) byTask.set(row.taskId, [])
+    byTask.get(row.taskId)!.push(row)
+  }
+
+  const summaries = new Map<string, TaskTimingSummary>()
+  for (const [taskId, taskRows] of byTask.entries()) {
+    const summary = calcTaskProjectedExpectedMinutes(
+      taskRows[0]!.colliCount,
+      taskRows.map((row) => row.startedAt),
+    )
+    if (summary) summaries.set(taskId, summary)
+  }
+  return summaries
+}
+
+async function loadTaskTimingSummaries(
+  taskIds: string[],
+  cache: Map<string, TaskTimingSummary>,
+): Promise<void> {
+  const missingTaskIds = taskIds.filter((taskId) => !cache.has(taskId))
+  if (missingTaskIds.length === 0) return
+
+  const timingRows = await db
+    .select({
+      taskId: taskSessions.taskId,
+      colliCount: tasks.colliCount,
+      startedAt: taskSessions.startedAt,
+    })
+    .from(taskSessions)
+    .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+    .where(inArray(taskSessions.taskId, missingTaskIds)) as TaskTimingRow[]
+
+  const summaryMap = buildTaskTimingMap(timingRows)
+  for (const taskId of missingTaskIds) {
+    const summary = summaryMap.get(taskId)
+    if (summary) cache.set(taskId, summary)
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,63 +99,184 @@ export async function GET(request: NextRequest) {
 
     const whereClause = and(...conditions)
 
-    // Overview stats
-    const [overview] = await db
-      .select({
-        totalSessions: count(taskSessions.id),
-        avgExpectedMinutes: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
-        avgActualMinutes: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
-        avgDiffMinutes: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
-      })
+    const [{ totalSessions }] = await db
+      .select({ totalSessions: count(taskSessions.id) })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
       .where(whereClause)
 
-    // By personnel
-    const byPersonnel = await db
-      .select({
-        personnelId: taskSessions.personnelId,
-        personnelName: personnel.fullName,
-        sessionCount: count(taskSessions.id),
-        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
-        avgActual: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
-        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
-      })
-      .from(taskSessions)
-      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
-      .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
-      .where(whereClause)
-      .groupBy(taskSessions.personnelId, personnel.fullName)
-      .orderBy(sql`AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes})`)
+    const totalSessionsNumber = Number(totalSessions)
+    if (totalSessionsNumber > ANALYTICS_MAX_ROWS) {
+      return Response.json(
+        {
+          error: `Analytics range too wide (${totalSessionsNumber} sessions). Narrow the date range.`,
+          code: 'ANALYTICS_RANGE_TOO_WIDE',
+          maxSessions: ANALYTICS_MAX_ROWS,
+        },
+        { status: 400 },
+      )
+    }
 
-    // By department
-    const byDepartment = await db
-      .select({
-        department: tasks.department,
-        sessionCount: count(taskSessions.id),
-        avgExpected: sql<number>`ROUND(AVG(${tasks.expectedMinutes})::numeric, 1)`,
-        avgActual: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60))::numeric, 1)`,
-        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
+    if (totalSessionsNumber === 0) {
+      return Response.json({
+        overview: {
+          totalSessions: 0,
+          avgExpectedMinutes: null,
+          avgActualMinutes: null,
+          avgDiffMinutes: null,
+        },
+        byPersonnel: [],
+        byDepartment: [],
+        daily: [],
       })
-      .from(taskSessions)
-      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
-      .where(whereClause)
-      .groupBy(tasks.department)
-      .orderBy(sql`COUNT(${taskSessions.id}) DESC`)
+    }
 
-    // Daily overview
-    const daily = await db
-      .select({
-        date: taskSessions.workDate,
-        sessionCount: count(taskSessions.id),
-        avgDiff: sql<number>`ROUND((AVG(EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60 - ${tasks.expectedMinutes}))::numeric, 1)`,
-      })
-      .from(taskSessions)
-      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
-      .where(whereClause)
-      .groupBy(taskSessions.workDate)
-      .orderBy(sql`${taskSessions.workDate} DESC`)
-      .limit(30)
+    const taskTimingCache = new Map<string, TaskTimingSummary>()
+    let processedCount = 0
+    let expectedSum = 0
+    let actualSum = 0
+    let diffSum = 0
+
+    const byPersonnelMap = new Map<string, {
+      personnelId: string
+      personnelName: string
+      sessionCount: number
+      expectedSum: number
+      actualSum: number
+      diffSum: number
+    }>()
+    const byDepartmentMap = new Map<string, {
+      department: string
+      sessionCount: number
+      expectedSum: number
+      actualSum: number
+      diffSum: number
+    }>()
+    const dailyMap = new Map<string, { sessionCount: number; diffSum: number }>()
+
+    for (let offset = 0; offset < totalSessionsNumber; offset += ANALYTICS_BATCH_SIZE) {
+      const chunk = await db
+        .select({
+          taskId: taskSessions.taskId,
+          personnelId: taskSessions.personnelId,
+          personnelName: personnel.fullName,
+          department: tasks.department,
+          workDate: taskSessions.workDate,
+          colliCount: tasks.colliCount,
+          expectedMinutes: tasks.expectedMinutes,
+          startedAt: taskSessions.startedAt,
+          endedAt: taskSessions.endedAt,
+          totalPausedMinutes: taskSessions.totalPausedMinutes,
+        })
+        .from(taskSessions)
+        .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+        .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
+        .where(whereClause)
+        .orderBy(desc(taskSessions.startedAt))
+        .limit(ANALYTICS_BATCH_SIZE)
+        .offset(offset) as AnalyticsSessionRow[]
+
+      if (chunk.length === 0) break
+
+      const taskIds = Array.from(new Set(chunk.map((row) => row.taskId)))
+      await loadTaskTimingSummaries(taskIds, taskTimingCache)
+
+      for (const row of chunk) {
+        const summary = taskTimingCache.get(row.taskId)
+        const expectedSessionMinutes = calcExpectedMinutesForSession(
+          summary?.projectedExpectedMinutes ?? row.expectedMinutes,
+          summary?.taskStartedAtMs ?? row.startedAt,
+          row.startedAt,
+        )
+        const actualMinutes = calcActualMinutesNet(
+          row.startedAt,
+          row.endedAt,
+          Number(row.totalPausedMinutes ?? 0),
+        )
+        if (actualMinutes === null) continue
+
+        const diffMinutes = roundToOne(actualMinutes - expectedSessionMinutes)
+        processedCount++
+        expectedSum += expectedSessionMinutes
+        actualSum += actualMinutes
+        diffSum += diffMinutes
+
+        if (!byPersonnelMap.has(row.personnelId)) {
+          byPersonnelMap.set(row.personnelId, {
+            personnelId: row.personnelId,
+            personnelName: row.personnelName,
+            sessionCount: 0,
+            expectedSum: 0,
+            actualSum: 0,
+            diffSum: 0,
+          })
+        }
+        const personnelEntry = byPersonnelMap.get(row.personnelId)!
+        personnelEntry.sessionCount++
+        personnelEntry.expectedSum += expectedSessionMinutes
+        personnelEntry.actualSum += actualMinutes
+        personnelEntry.diffSum += diffMinutes
+
+        if (!byDepartmentMap.has(row.department)) {
+          byDepartmentMap.set(row.department, {
+            department: row.department,
+            sessionCount: 0,
+            expectedSum: 0,
+            actualSum: 0,
+            diffSum: 0,
+          })
+        }
+        const departmentEntry = byDepartmentMap.get(row.department)!
+        departmentEntry.sessionCount++
+        departmentEntry.expectedSum += expectedSessionMinutes
+        departmentEntry.actualSum += actualMinutes
+        departmentEntry.diffSum += diffMinutes
+
+        if (!dailyMap.has(row.workDate)) {
+          dailyMap.set(row.workDate, { sessionCount: 0, diffSum: 0 })
+        }
+        const dailyEntry = dailyMap.get(row.workDate)!
+        dailyEntry.sessionCount++
+        dailyEntry.diffSum += diffMinutes
+      }
+    }
+
+    const overview = {
+      totalSessions: processedCount,
+      avgExpectedMinutes: averageRounded(expectedSum, processedCount),
+      avgActualMinutes: averageRounded(actualSum, processedCount),
+      avgDiffMinutes: averageRounded(diffSum, processedCount),
+    }
+
+    const byPersonnel = Array.from(byPersonnelMap.values())
+      .map((entry) => ({
+        personnelId: entry.personnelId,
+        personnelName: entry.personnelName,
+        sessionCount: entry.sessionCount,
+        avgExpected: averageRounded(entry.expectedSum, entry.sessionCount),
+        avgActual: averageRounded(entry.actualSum, entry.sessionCount),
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
+      }))
+      .sort((a, b) => (a.avgDiff ?? 0) - (b.avgDiff ?? 0))
+
+    const byDepartment = Array.from(byDepartmentMap.values())
+      .map((entry) => ({
+        department: entry.department,
+        sessionCount: entry.sessionCount,
+        avgExpected: averageRounded(entry.expectedSum, entry.sessionCount),
+        avgActual: averageRounded(entry.actualSum, entry.sessionCount),
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
+      }))
+      .sort((a, b) => b.sessionCount - a.sessionCount)
+
+    const daily = Array.from(dailyMap.entries())
+      .map(([date, entry]) => ({
+        date,
+        sessionCount: entry.sessionCount,
+        avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30)
 
     return Response.json({ overview, byPersonnel, byDepartment, daily })
   } catch (err) {

@@ -1,8 +1,15 @@
 import { NextRequest } from 'next/server'
 import { db, withTransaction } from '@/lib/db'
 import { tasks, taskSessions, personnel } from '@/lib/db/schema'
-import { calcExpectedMinutes, todayDate } from '@/lib/business'
-import { eq, sql, and, isNull, inArray } from 'drizzle-orm'
+import {
+  calcExpectedMinutes,
+  calcTaskProjectedExpectedMinutes,
+  calcExpectedMinutesForSession,
+  calcActualMinutesNet,
+  roundToOne,
+  todayDate,
+} from '@/lib/business'
+import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { DEPARTMENT_KEYS, type DepartmentKey } from '@/lib/departments'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -40,28 +47,42 @@ export async function GET(
         personnelName: personnel.fullName,
         startedAt: taskSessions.startedAt,
         endedAt: taskSessions.endedAt,
+        totalPausedMinutes: taskSessions.totalPausedMinutes,
         workDate: taskSessions.workDate,
-        actualMinutes: sql<number | null>`
-          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND((
-            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-          )::numeric, 1)
-          ELSE NULL END`,
-        performanceDiff: sql<number | null>`
-          CASE WHEN ${taskSessions.endedAt} IS NOT NULL
-          THEN ROUND((
-            EXTRACT(EPOCH FROM (${taskSessions.endedAt} - ${taskSessions.startedAt})) / 60
-            - COALESCE(${taskSessions.totalPausedMinutes}, 0)
-            - ${task.expectedMinutes}
-          )::numeric, 1)
-          ELSE NULL END`,
       })
       .from(taskSessions)
       .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
       .where(eq(taskSessions.taskId, id))
 
-    return Response.json({ ...task, sessions })
+    const summary = calcTaskProjectedExpectedMinutes(
+      task.colliCount,
+      sessions.map((s) => s.startedAt),
+    )
+
+    const enrichedSessions = sessions.map((session) => {
+      const expectedSessionMinutes = calcExpectedMinutesForSession(
+        summary?.projectedExpectedMinutes ?? task.expectedMinutes,
+        summary?.taskStartedAtMs ?? session.startedAt,
+        session.startedAt,
+      )
+      const actualMinutes = calcActualMinutesNet(
+        session.startedAt,
+        session.endedAt,
+        Number(session.totalPausedMinutes ?? 0),
+      )
+      const performanceDiff = actualMinutes !== null
+        ? roundToOne(actualMinutes - expectedSessionMinutes)
+        : null
+
+      return {
+        ...session,
+        expectedSessionMinutes,
+        actualMinutes,
+        performanceDiff,
+      }
+    })
+
+    return Response.json({ ...task, sessions: enrichedSessions })
   } catch {
     return Response.json({ error: 'Failed to fetch task' }, { status: 500 })
   }
@@ -82,14 +103,20 @@ export async function PUT(
     const [existing] = await db.select().from(tasks).where(eq(tasks.id, id))
     if (!existing) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
 
-    const newColliCount = parsed.data.colliCount ?? existing.colliCount
-    const newDepartment = parsed.data.department ?? existing.department
+    const wantsDepartment = parsed.data.department !== undefined
+    const wantsColliCount = parsed.data.colliCount !== undefined
+    const wantsPersonnelIds = parsed.data.personnelIds !== undefined
+    const wantsStartedAt = parsed.data.startedAt !== undefined
+    const wantsCompletedForbiddenField = wantsDepartment || wantsColliCount || wantsPersonnelIds || wantsStartedAt
+
+    const newColliCount = wantsColliCount ? parsed.data.colliCount! : existing.colliCount
+    const newDepartment = wantsDepartment ? parsed.data.department! : existing.department
 
     const now = new Date()
-    const desiredPersonnelIds = parsed.data.personnelIds
+    const desiredPersonnelIds = wantsPersonnelIds
       ? Array.from(new Set(parsed.data.personnelIds))
       : null
-    const startedAt = parsed.data.startedAt ? new Date(parsed.data.startedAt) : null
+    const startedAt = wantsStartedAt && parsed.data.startedAt ? new Date(parsed.data.startedAt) : null
     const startedAtWorkDate = startedAt ? toLocalDateIso(startedAt) : null
 
     const updated = await withTransaction(async (client: ClientBase) => {
@@ -105,8 +132,9 @@ export async function PUT(
         .from(taskSessions)
         .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
 
-      if (desiredPersonnelIds && activeSessions.length === 0) {
-        throw new Error('Cannot edit personnel for completed task')
+      const isCompletedTask = activeSessions.length === 0
+      if (isCompletedTask && wantsCompletedForbiddenField) {
+        throw new Error('Only notes and end times can be edited for completed task')
       }
 
       if (desiredPersonnelIds && activeSessions.length > 0) {
@@ -155,26 +183,35 @@ export async function PUT(
           .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
       }
 
-      const refreshedActiveSessions = await txDb
-        .select({ personnelId: taskSessions.personnelId })
-        .from(taskSessions)
-        .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
+      let newExpectedMinutes = existing.expectedMinutes
+      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds)) {
+        const refreshedActiveSessions = await txDb
+          .select({ personnelId: taskSessions.personnelId })
+          .from(taskSessions)
+          .where(and(eq(taskSessions.taskId, id), isNull(taskSessions.endedAt)))
 
-      const personnelCount = Math.max(
-        desiredPersonnelIds?.length ?? refreshedActiveSessions.length,
-        1,
-      )
-      const newExpectedMinutes = calcExpectedMinutes(newColliCount, personnelCount)
+        const personnelCount = Math.max(
+          desiredPersonnelIds?.length ?? refreshedActiveSessions.length,
+          1,
+        )
+        newExpectedMinutes = calcExpectedMinutes(newColliCount, personnelCount)
+      }
+
+      const taskUpdates: Partial<typeof tasks.$inferInsert> = {
+        updatedAt: now,
+      }
+      if (wantsDepartment) taskUpdates.department = newDepartment
+      if (wantsColliCount) taskUpdates.colliCount = newColliCount
+      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds)) {
+        taskUpdates.expectedMinutes = newExpectedMinutes
+      }
+      if (parsed.data.notes !== undefined) {
+        taskUpdates.notes = parsed.data.notes ?? null
+      }
 
       const [taskUpdated] = await txDb
         .update(tasks)
-        .set({
-          department: newDepartment,
-          colliCount: newColliCount,
-          expectedMinutes: newExpectedMinutes,
-          notes: parsed.data.notes !== undefined ? (parsed.data.notes ?? null) : existing.notes,
-          updatedAt: now,
-        })
+        .set(taskUpdates)
         .where(eq(tasks.id, id))
         .returning()
 
@@ -184,9 +221,9 @@ export async function PUT(
     return Response.json(updated)
   } catch (err) {
     console.error('[PUT /api/tasks/[id]]', err)
-    if (err instanceof Error && err.message === 'Cannot edit personnel for completed task') {
+    if (err instanceof Error && err.message === 'Only notes and end times can be edited for completed task') {
       return Response.json(
-        { error: 'Cannot edit personnel for completed task', code: 'TASK_COMPLETED_EDIT_FORBIDDEN' },
+        { error: 'Only notes and end times can be edited for completed task', code: 'TASK_COMPLETED_EDIT_FORBIDDEN' },
         { status: 409 },
       )
     }

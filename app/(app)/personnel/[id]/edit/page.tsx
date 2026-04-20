@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card } from '@/components/ui/Card'
-import { Spinner } from '@/components/ui/Spinner'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
@@ -55,10 +55,6 @@ export default function EditPersonnelPage() {
     }
   }
 
-  if (fetching) {
-    return <div className="flex justify-center py-20"><Spinner size="lg" className="text-primary" /></div>
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
@@ -71,47 +67,69 @@ export default function EditPersonnelPage() {
       </div>
 
       <Card>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <Input
-            label={t('personnel.fullName')}
-            placeholder={t('personnel.namePlaceholder')}
-            value={form.fullName}
-            onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
-            error={errors.fullName}
-          />
-          <Textarea
-            label={t('personnel.notes')}
-            placeholder={t('personnel.notesPlaceholder')}
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          />
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-gray-700">{t('personnel.status')}</label>
-            <button
-              type="button"
-              onClick={() => setForm((f) => ({ ...f, isActive: !f.isActive }))}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.isActive ? 'bg-primary' : 'bg-gray-300'}`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`}
-              />
-            </button>
-            <span className="text-sm text-gray-600">
-              {form.isActive ? t('personnel.active') : t('personnel.inactive')}
-            </span>
-          </div>
-          {errors.submit && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-              {errors.submit}
+        {fetching ? (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-10 w-full rounded-xl" />
             </div>
-          )}
-          <div className="flex gap-3">
-            <Button type="submit" loading={loading} fullWidth>{t('personnel.save')}</Button>
-            <Link href="/personnel" className="flex-1">
-              <Button type="button" variant="secondary" fullWidth>{t('personnel.cancel')}</Button>
-            </Link>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-3 w-14" />
+              <Skeleton className="h-6 w-11 rounded-full" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <div className="flex gap-3">
+              <Skeleton className="h-11 w-full rounded-xl" />
+              <Skeleton className="h-11 w-full rounded-xl" />
+            </div>
           </div>
-        </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <Input
+              label={t('personnel.fullName')}
+              placeholder={t('personnel.namePlaceholder')}
+              value={form.fullName}
+              onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
+              error={errors.fullName}
+            />
+            <Textarea
+              label={t('personnel.notes')}
+              placeholder={t('personnel.notesPlaceholder')}
+              value={form.notes}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">{t('personnel.status')}</label>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, isActive: !f.isActive }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${form.isActive ? 'bg-primary' : 'bg-gray-300'}`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.isActive ? 'translate-x-6' : 'translate-x-1'}`}
+                />
+              </button>
+              <span className="text-sm text-gray-600">
+                {form.isActive ? t('personnel.active') : t('personnel.inactive')}
+              </span>
+            </div>
+            {errors.submit && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                {errors.submit}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <Button type="submit" loading={loading} fullWidth>{t('personnel.save')}</Button>
+              <Link href="/personnel" className="flex-1">
+                <Button type="button" variant="secondary" fullWidth>{t('personnel.cancel')}</Button>
+              </Link>
+            </div>
+          </form>
+        )}
       </Card>
     </div>
   )

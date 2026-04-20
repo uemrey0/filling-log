@@ -160,7 +160,7 @@ export function PersonnelCombobox({
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={searchPlaceholder}
-          className="flex-1 min-w-[120px] text-sm text-gray-900 placeholder-gray-400 bg-transparent outline-none"
+          className="flex-1 min-w-[120px] text-base md:text-sm text-gray-900 placeholder-gray-400 bg-transparent outline-none"
         />
       </div>
 

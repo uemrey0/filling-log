@@ -6,8 +6,8 @@ import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Spinner } from '@/components/ui/Spinner'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { Skeleton } from '@/components/ui/Skeleton'
 import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
 
@@ -53,14 +53,6 @@ export default function PersonnelPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-20">
-        <Spinner size="lg" className="text-primary" />
-      </div>
-    )
-  }
-
   const q = search.trim().toLowerCase()
   const filtered = q
     ? people.filter((p) => p.fullName.toLowerCase().includes(q))
@@ -86,7 +78,7 @@ export default function PersonnelPage() {
       />
 
       {/* Search */}
-      {people.length > 0 && (
+      {(loading || people.length > 0) && (
         <div className="relative">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -101,7 +93,22 @@ export default function PersonnelPage() {
         </div>
       )}
 
-      {people.length === 0 ? (
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <Card key={`personnel-skeleton-${idx}`} padding="sm">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-9 w-9 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="h-3 w-56" />
+                </div>
+                <Skeleton className="h-4 w-4" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : people.length === 0 ? (
         <Card>
           <EmptyState
             title={t('personnel.noPersonnel')}
