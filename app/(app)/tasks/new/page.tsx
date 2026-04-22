@@ -37,23 +37,39 @@ export default function NewTaskPage() {
 
   const [form, setForm] = useState({
     department: '',
+    discountContainer: false,
     colliCount: '',
     notes: '',
   })
 
   const expectedMinutes =
     form.colliCount && !isNaN(Number(form.colliCount)) && Number(form.colliCount) > 0
-      ? calcExpectedMinutes(Number(form.colliCount), Math.max(1, selectedPersonnel.length))
+      ? calcExpectedMinutes(
+        Number(form.colliCount),
+        Math.max(1, selectedPersonnel.length),
+        form.discountContainer,
+      )
       : null
 
   const loadPersonnel = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/personnel?active=true')
-      if (res.ok) setPersonnel(await res.json())
-    } catch { /* ignore */ }
+    const res = await apiFetch('/api/personnel?active=true')
+    if (!res.ok) return null
+    return res.json() as Promise<Personnel[]>
   }, [])
 
-  useEffect(() => { loadPersonnel() }, [loadPersonnel])
+  useEffect(() => {
+    let cancelled = false
+
+    void loadPersonnel()
+      .then((data) => {
+        if (!cancelled && data) setPersonnel(data)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadPersonnel])
 
   const handleAddNew = async (name: string): Promise<PersonnelChip> => {
     const res = await apiFetch('/api/personnel', {
@@ -115,6 +131,7 @@ export default function NewTaskPage() {
         body: JSON.stringify({
           personnelIds: selectedPersonnel.map((p) => p.id),
           department: form.department,
+          discountContainer: form.discountContainer,
           colliCount: Number(form.colliCount),
           notes: form.notes.trim() || null,
           workDate: getTodayLocalDate(),
@@ -209,6 +226,36 @@ export default function NewTaskPage() {
                 <span className="font-bold">{expectedMinutes} {t('taskForm.minutes')}</span>
               </div>
             )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium text-gray-900">{t('taskForm.discountContainer')}</div>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, discountContainer: false }))}
+                aria-pressed={!form.discountContainer}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                  !form.discountContainer
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t('common.no')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, discountContainer: true }))}
+                aria-pressed={form.discountContainer}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                  form.discountContainer
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t('common.yes')}
+              </button>
+            </div>
           </div>
 
           <Textarea

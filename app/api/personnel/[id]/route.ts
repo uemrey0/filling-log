@@ -22,6 +22,7 @@ function buildSessionSelect() {
     workDate: taskSessions.workDate,
     taskId: taskSessions.taskId,
     department: tasks.department,
+    discountContainer: tasks.discountContainer,
     colliCount: tasks.colliCount,
     expectedMinutes: tasks.expectedMinutes,
   }
@@ -35,6 +36,7 @@ type SessionRow = {
   workDate: string
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
 }
@@ -42,6 +44,7 @@ type SessionRow = {
 type TaskTimingRow = {
   taskId: string
   colliCount: number
+  discountContainer: boolean
   startedAt: Date
 }
 
@@ -62,6 +65,7 @@ function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummar
     const summary = calcTaskProjectedExpectedMinutes(
       taskRows[0]!.colliCount,
       taskRows.map((r) => r.startedAt),
+      taskRows[0]!.discountContainer,
     )
     if (summary) summaries.set(taskId, summary)
   }
@@ -76,6 +80,7 @@ async function loadTaskTimingMap(taskIds: string[]): Promise<Map<string, TaskTim
     .select({
       taskId: taskSessions.taskId,
       colliCount: tasks.colliCount,
+      discountContainer: tasks.discountContainer,
       startedAt: taskSessions.startedAt,
     })
     .from(taskSessions)
@@ -146,6 +151,7 @@ async function getStats(personnelId: string, dateFrom?: string | null, dateTo?: 
         endedAt: taskSessions.endedAt,
         totalPausedMinutes: taskSessions.totalPausedMinutes,
         colliCount: tasks.colliCount,
+        discountContainer: tasks.discountContainer,
         expectedMinutes: tasks.expectedMinutes,
       })
       .from(taskSessions)

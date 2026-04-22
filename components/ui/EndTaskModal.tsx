@@ -29,6 +29,7 @@ interface EndTaskModalProps {
   onConfirm: (data: EndTaskConfirmData) => Promise<void> | void
   task: {
     colliCount: number
+    discountContainer: boolean
     startedAt: string
     personnel: EndTaskPersonnel[]
   } | null
@@ -147,8 +148,12 @@ export function EndTaskModal({ open, onClose, onConfirm, task, loading = false }
   const continuingPersonnel = personnel.filter((p) => !endingIds.has(p.personnelId))
 
   const newExpected = useMemo(
-    () => calcExpectedMinutes(doneColli, Math.max(1, endingPersonnel.length || personnel.length)),
-    [doneColli, endingPersonnel.length, personnel.length],
+    () => calcExpectedMinutes(
+      doneColli,
+      Math.max(1, endingPersonnel.length || personnel.length),
+      task?.discountContainer ?? false,
+    ),
+    [doneColli, endingPersonnel.length, personnel.length, task?.discountContainer],
   )
 
   // Per-step validity

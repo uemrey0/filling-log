@@ -16,6 +16,7 @@ const resolutionSchema = z.object({
 export const startTaskSchema = z.object({
   personnelIds: z.array(z.string().uuid()).min(1),
   department: z.enum(DEPARTMENT_KEYS),
+  discountContainer: z.boolean().optional().default(false),
   colliCount: z.number().int().min(1).max(9999),
   notes: z.string().max(1000).optional().nullable(),
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

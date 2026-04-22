@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
         personnelName: personnel.fullName,
         startedAt: taskSessions.startedAt,
         department: tasks.department,
+        discountContainer: tasks.discountContainer,
         colliCount: tasks.colliCount,
         expectedMinutes: tasks.expectedMinutes,
       })
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
     const grouped = new Map<string, {
       taskId: string
       department: string
+      discountContainer: boolean
       colliCount: number
       expectedMinutes: number
       startedAt: string
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest) {
         grouped.set(s.taskId, {
           taskId: s.taskId,
           department: s.department,
+          discountContainer: s.discountContainer,
           colliCount: s.colliCount,
           expectedMinutes: s.expectedMinutes,
           startedAt: s.startedAt.toISOString(),

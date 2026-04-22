@@ -1,20 +1,34 @@
 const TASK_FIXED_EXTRA_MINUTES = 5
+const DISCOUNT_CONTAINER_DURATION_MULTIPLIER = 0.75
 
-export function calcExpectedMinutes(colliCount: number, personnelCount: number = 1): number {
-  return Math.ceil(colliCount / Math.max(1, personnelCount)) + TASK_FIXED_EXTRA_MINUTES
+function applyDiscountContainerAdjustment(minutes: number, discountContainer: boolean = false): number {
+  const adjustedMinutes = discountContainer
+    ? minutes * DISCOUNT_CONTAINER_DURATION_MULTIPLIER
+    : minutes
+  return Math.max(1, Math.ceil(adjustedMinutes))
+}
+
+export function calcExpectedMinutes(
+  colliCount: number,
+  personnelCount: number = 1,
+  discountContainer: boolean = false,
+): number {
+  const baseMinutes = Math.ceil(colliCount / Math.max(1, personnelCount)) + TASK_FIXED_EXTRA_MINUTES
+  return applyDiscountContainerAdjustment(baseMinutes, discountContainer)
 }
 
 export function calcExpectedMinutesFromSessionStarts(
   colliCount: number,
   startedAts: Array<Date | string>,
+  discountContainer: boolean = false,
 ): number {
   const validStarts = startedAts
     .map((value) => (typeof value === 'string' ? new Date(value).getTime() : value.getTime()))
     .filter((ts) => Number.isFinite(ts))
     .sort((a, b) => a - b)
 
-  if (colliCount <= 0) return TASK_FIXED_EXTRA_MINUTES
-  if (validStarts.length === 0) return calcExpectedMinutes(colliCount, 1)
+  if (colliCount <= 0) return applyDiscountContainerAdjustment(TASK_FIXED_EXTRA_MINUTES, discountContainer)
+  if (validStarts.length === 0) return calcExpectedMinutes(colliCount, 1, discountContainer)
 
   const anchor = validStarts[0]!
   const eventCounts = new Map<number, number>()
@@ -34,7 +48,10 @@ export function calcExpectedMinutesFromSessionStarts(
       const capacity = active * deltaMin
       if (capacity >= remaining) {
         elapsedMinutes += remaining / active
-        return Math.ceil(TASK_FIXED_EXTRA_MINUTES + elapsedMinutes)
+        return applyDiscountContainerAdjustment(
+          TASK_FIXED_EXTRA_MINUTES + elapsedMinutes,
+          discountContainer,
+        )
       }
       remaining -= capacity
       elapsedMinutes += deltaMin
@@ -46,7 +63,10 @@ export function calcExpectedMinutesFromSessionStarts(
 
   const normalizedActive = Math.max(1, active)
   elapsedMinutes += remaining / normalizedActive
-  return Math.ceil(TASK_FIXED_EXTRA_MINUTES + elapsedMinutes)
+  return applyDiscountContainerAdjustment(
+    TASK_FIXED_EXTRA_MINUTES + elapsedMinutes,
+    discountContainer,
+  )
 }
 
 function toMillis(value: Date | string): number | null {
@@ -61,12 +81,17 @@ export function roundToOne(value: number): number {
 export function calcTaskProjectedExpectedMinutes(
   colliCount: number,
   startedAts: Array<Date | string>,
+  discountContainer: boolean = false,
 ): { projectedExpectedMinutes: number; taskStartedAtMs: number } | null {
   const validStarts = startedAts.map(toMillis).filter((ts): ts is number => ts !== null)
   if (validStarts.length === 0) return null
 
   return {
-    projectedExpectedMinutes: calcExpectedMinutesFromSessionStarts(colliCount, startedAts),
+    projectedExpectedMinutes: calcExpectedMinutesFromSessionStarts(
+      colliCount,
+      startedAts,
+      discountContainer,
+    ),
     taskStartedAtMs: Math.min(...validStarts),
   }
 }

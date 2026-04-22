@@ -44,6 +44,7 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true)
   const [editOpen, setEditOpen] = useState(false)
   const [showActions, setShowActions] = useState(false)
+  const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const actionsRef = useRef<HTMLDivElement>(null)
@@ -112,7 +113,11 @@ export default function TaskDetailPage() {
     const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
     if (!Number.isFinite(anchorTs)) return []
 
-    const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(data.colliCount, startTimes)
+    const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(
+      data.colliCount,
+      startTimes,
+      data.discountContainer,
+    )
     const pausedMinutes = Math.max(...sessions.map((s) => Number(s.totalPausedMinutes ?? 0)), 0)
     return [anchorTs + (projectedExpectedMinutes + pausedMinutes) * 60_000]
   })()
@@ -236,9 +241,22 @@ export default function TaskDetailPage() {
 
                 {/* Row 2: department as title + colli */}
                 <div>
-                  <h1 className="text-2xl font-black text-gray-900 leading-tight truncate">
-                    {departmentLabel}
-                  </h1>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h1 className="text-2xl font-black text-gray-900 leading-tight truncate">
+                      {departmentLabel}
+                    </h1>
+                    {data.discountContainer && (
+                      <button
+                        type="button"
+                        onClick={() => setShowDiscountInfo(true)}
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-50 text-[11px] font-black text-red-600 ring-1 ring-red-200"
+                        aria-label={t('tasks.discountContainerBadge')}
+                        title={t('tasks.discountContainerBadge')}
+                      >
+                        %
+                      </button>
+                    )}
+                  </div>
                   <div className="mt-1 flex items-baseline gap-1.5">
                     <span className="text-base font-bold text-gray-700 tabular-nums">
                       {data.colliCount}
@@ -406,6 +424,13 @@ export default function TaskDetailPage() {
           onSaved={load}
         />
       )}
+
+      <ModalOrSheet open={showDiscountInfo} onClose={() => setShowDiscountInfo(false)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerDescription')}</p>
+        </div>
+      </ModalOrSheet>
 
       <ModalOrSheet
         open={deleteOpen}

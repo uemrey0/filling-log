@@ -19,6 +19,7 @@ import type { NodePgClient } from 'drizzle-orm/node-postgres'
 
 const editTaskSchema = z.object({
   department: z.enum([...DEPARTMENT_KEYS] as [DepartmentKey, ...DepartmentKey[]]).optional(),
+  discountContainer: z.boolean().optional(),
   colliCount: z.number().int().min(1).max(9999).optional(),
   notes: z.string().max(500).nullable().optional(),
   personnelIds: z.array(z.string().uuid()).min(1).optional(),
@@ -57,6 +58,7 @@ export async function GET(
     const summary = calcTaskProjectedExpectedMinutes(
       task.colliCount,
       sessions.map((s) => s.startedAt),
+      task.discountContainer,
     )
 
     const enrichedSessions = sessions.map((session) => {
@@ -104,13 +106,18 @@ export async function PUT(
     if (!existing) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
 
     const wantsDepartment = parsed.data.department !== undefined
+    const wantsDiscountContainer = parsed.data.discountContainer !== undefined
     const wantsColliCount = parsed.data.colliCount !== undefined
     const wantsPersonnelIds = parsed.data.personnelIds !== undefined
     const wantsStartedAt = parsed.data.startedAt !== undefined
-    const wantsCompletedForbiddenField = wantsDepartment || wantsColliCount || wantsPersonnelIds || wantsStartedAt
+    const wantsCompletedForbiddenField =
+      wantsDepartment || wantsDiscountContainer || wantsColliCount || wantsPersonnelIds || wantsStartedAt
 
     const newColliCount = wantsColliCount ? parsed.data.colliCount! : existing.colliCount
     const newDepartment = wantsDepartment ? parsed.data.department! : existing.department
+    const newDiscountContainer = wantsDiscountContainer
+      ? parsed.data.discountContainer!
+      : existing.discountContainer
 
     const now = new Date()
     const desiredPersonnelIds = wantsPersonnelIds
@@ -184,7 +191,7 @@ export async function PUT(
       }
 
       let newExpectedMinutes = existing.expectedMinutes
-      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds)) {
+      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds || wantsDiscountContainer)) {
         const refreshedActiveSessions = await txDb
           .select({ personnelId: taskSessions.personnelId })
           .from(taskSessions)
@@ -194,15 +201,20 @@ export async function PUT(
           desiredPersonnelIds?.length ?? refreshedActiveSessions.length,
           1,
         )
-        newExpectedMinutes = calcExpectedMinutes(newColliCount, personnelCount)
+        newExpectedMinutes = calcExpectedMinutes(
+          newColliCount,
+          personnelCount,
+          newDiscountContainer,
+        )
       }
 
       const taskUpdates: Partial<typeof tasks.$inferInsert> = {
         updatedAt: now,
       }
       if (wantsDepartment) taskUpdates.department = newDepartment
+      if (wantsDiscountContainer) taskUpdates.discountContainer = newDiscountContainer
       if (wantsColliCount) taskUpdates.colliCount = newColliCount
-      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds)) {
+      if (activeSessions.length > 0 && (wantsColliCount || wantsPersonnelIds || wantsDiscountContainer)) {
         taskUpdates.expectedMinutes = newExpectedMinutes
       }
       if (parsed.data.notes !== undefined) {

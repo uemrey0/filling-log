@@ -20,6 +20,7 @@ type SessionRow = {
   sessionId: string
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   taskNotes: string | null
@@ -46,6 +47,7 @@ function withProjectedMetrics(rows: SessionRow[]) {
     const summary = calcTaskProjectedExpectedMinutes(
       taskRows[0]!.colliCount,
       taskRows.map((r) => r.startedAt),
+      taskRows[0]!.discountContainer,
     )
     if (summary) taskSummaries.set(taskId, summary)
   }
@@ -110,6 +112,7 @@ export async function GET(request: NextRequest) {
       sessionId: taskSessions.id,
       taskId: tasks.id,
       department: tasks.department,
+      discountContainer: tasks.discountContainer,
       colliCount: tasks.colliCount,
       expectedMinutes: tasks.expectedMinutes,
       taskNotes: tasks.notes,
@@ -183,8 +186,8 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'Invalid input', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    const { personnelIds, department, colliCount, notes, resolutions } = parsed.data
-    const expectedMinutes = calcExpectedMinutes(colliCount, personnelIds.length)
+    const { personnelIds, department, discountContainer, colliCount, notes, resolutions } = parsed.data
+    const expectedMinutes = calcExpectedMinutes(colliCount, personnelIds.length, discountContainer)
     const now = new Date()
     const workDate = parsed.data.workDate ?? todayDate()
 
@@ -223,7 +226,11 @@ export async function POST(request: NextRequest) {
               .update(tasks)
               .set({
                 colliCount: doneColli,
-                expectedMinutes: calcExpectedMinutes(doneColli, activePersonnelCount),
+                expectedMinutes: calcExpectedMinutes(
+                  doneColli,
+                  activePersonnelCount,
+                  originalTask.discountContainer,
+                ),
                 updatedAt: now,
               })
               .where(eq(tasks.id, res.taskId))
@@ -238,8 +245,13 @@ export async function POST(request: NextRequest) {
                 .insert(tasks)
                 .values({
                   department: originalTask.department,
+                  discountContainer: originalTask.discountContainer,
                   colliCount: remainingColli,
-                  expectedMinutes: calcExpectedMinutes(remainingColli, otherActiveSessions.length),
+                  expectedMinutes: calcExpectedMinutes(
+                    remainingColli,
+                    otherActiveSessions.length,
+                    originalTask.discountContainer,
+                  ),
                   notes: originalTask.notes,
                 })
                 .returning()
@@ -264,7 +276,13 @@ export async function POST(request: NextRequest) {
 
       const [task] = await txDb
         .insert(tasks)
-        .values({ department, colliCount, expectedMinutes, notes: notes ?? null })
+        .values({
+          department,
+          discountContainer,
+          colliCount,
+          expectedMinutes,
+          notes: notes ?? null,
+        })
         .returning()
 
       const newSessions = await txDb

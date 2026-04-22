@@ -22,6 +22,7 @@ interface SessionRow {
   sessionId: string
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   expectedSessionMinutes: number
@@ -55,6 +56,7 @@ interface PersonnelEntry {
 interface TaskGroup {
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   taskNotes: string | null
@@ -73,6 +75,7 @@ interface TaskGroup {
 interface EditableTaskForModal {
   id: string
   department: string
+  discountContainer: boolean
   colliCount: number
   notes: string | null
   sessions: Array<{
@@ -133,6 +136,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
       group = {
         taskId: s.taskId,
         department: s.department,
+        discountContainer: s.discountContainer,
         colliCount: s.colliCount,
         expectedMinutes: s.expectedMinutes,
         taskNotes: s.taskNotes,
@@ -202,7 +206,11 @@ function getPlannedEndTsForGroup(group: TaskGroup): number | null {
   const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
   if (!Number.isFinite(anchorTs)) return null
 
-  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(group.colliCount, startTimes)
+  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(
+    group.colliCount,
+    startTimes,
+    group.discountContainer,
+  )
   return anchorTs + (projectedExpectedMinutes + group.totalPausedMinutes) * 60000
 }
 
@@ -212,6 +220,7 @@ function getProjectedExpectedMinutesForGroup(group: TaskGroup): number {
   return calcExpectedMinutesFromSessionStarts(
     group.colliCount,
     source.map((p) => p.startedAt),
+    group.discountContainer,
   )
 }
 
@@ -248,10 +257,12 @@ function LiveClock() {
 function ActiveTaskProgress({
   personnel,
   colliCount,
+  discountContainer,
   isPaused,
 }: {
   personnel: PersonnelEntry[]
   colliCount: number
+  discountContainer: boolean
   isPaused: boolean
 }) {
   const [netElapsed, setNetElapsed] = useState(0)
@@ -283,6 +294,7 @@ function ActiveTaskProgress({
     const projectedExpected = calcExpectedMinutesFromSessionStarts(
       colliCount,
       activeSessions.map((p) => p.startedAt),
+      discountContainer,
     )
     const pausedMinutes = Math.max(...activeSessions.map((p) => Number(p.totalPausedMinutes ?? 0)), 0)
     const pausedMs = pausedMinutes * 60000
@@ -310,7 +322,7 @@ function ActiveTaskProgress({
     update()
     const id = setInterval(update, 1000)
     return () => clearInterval(id)
-  }, [personnel, colliCount, isPaused])
+  }, [personnel, colliCount, discountContainer, isPaused])
 
   const totalSec = Math.floor(netElapsed / 1000)
   const h = Math.floor(totalSec / 3600)
@@ -384,6 +396,7 @@ export default function DashboardPage() {
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [notesTask, setNotesTask] = useState<TaskGroup | null>(null)
+  const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [endingTask, setEndingTask] = useState<TaskGroup | null>(null)
   const [endingSaving, setEndingSaving] = useState(false)
 
@@ -497,6 +510,7 @@ export default function DashboardPage() {
       setEditTask({
         id: raw.id,
         department: raw.department,
+        discountContainer: raw.discountContainer,
         colliCount: raw.colliCount,
         notes: raw.notes ?? null,
         sessions: raw.sessions ?? [],
@@ -724,6 +738,17 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {group.discountContainer && (
+                        <button
+                          type="button"
+                          onClick={() => setShowDiscountInfo(true)}
+                          className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-red-50 text-[11px] font-black text-red-600 ring-1 ring-red-200"
+                          aria-label={t('tasks.discountContainerBadge')}
+                          title={t('tasks.discountContainerBadge')}
+                        >
+                          %
+                        </button>
+                      )}
                       {group.isPaused ? (
                         <Badge variant="orange">{lang === 'nl' ? 'Gepauzeerd' : 'Paused'}</Badge>
                       ) : (
@@ -795,6 +820,7 @@ export default function DashboardPage() {
                   <ActiveTaskProgress
                     personnel={group.personnel}
                     colliCount={group.colliCount}
+                    discountContainer={group.discountContainer}
                     isPaused={group.isPaused}
                   />
 
@@ -886,6 +912,8 @@ export default function DashboardPage() {
                     accentColor={perfColor}
                     title={personnelNames}
                     subtitle={`${getDepartmentLabel(group.department, lang)} · ${group.colliCount} ${t('tasks.colli')}`}
+                    metaBadgeLabel={group.discountContainer ? t('tasks.discountContainerBadge') : undefined}
+                    onMetaBadgeClick={group.discountContainer ? () => setShowDiscountInfo(true) : undefined}
                     startTime={formatTime(group.startedAt)}
                     endTime={group.endedAt ? formatTime(group.endedAt) : null}
                     plannedEndTime={plannedEndTime}
@@ -931,6 +959,7 @@ export default function DashboardPage() {
         onConfirm={confirmEndTask}
         task={endingTask ? {
           colliCount: endingTask.colliCount,
+          discountContainer: endingTask.discountContainer,
           startedAt: endingTask.startedAt,
           personnel: endingTask.personnel
             .filter((p) => !p.endedAt)
@@ -953,6 +982,13 @@ export default function DashboardPage() {
               {notesTask?.taskNotes ?? t('tasks.noNotes')}
             </p>
           </div>
+        </div>
+      </ModalOrSheet>
+
+      <ModalOrSheet open={showDiscountInfo} onClose={() => setShowDiscountInfo(false)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerDescription')}</p>
         </div>
       </ModalOrSheet>
 
