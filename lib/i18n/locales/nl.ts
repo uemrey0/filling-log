@@ -68,7 +68,7 @@ export const nl = {
     noNotes: 'Geen notities',
     discountContainerBadge: 'Actie',
     discountContainerTitle: 'Actiecontainer',
-    discountContainerDescription: 'Deze taak is een actiecontainer. Daarom wordt de verwachte duur korter berekend dan bij een normale container.',
+    discountContainerDescription: 'Deze taak is een actiecontainer. Voor actiecontainers is er nog geen definitieve tijdslimiet. We analyseren de data en werken aan realistische verwachtingen, dus de verwachte duur is op dit moment vooral indicatief.',
   },
   taskForm: {
     title: 'Taak starten',

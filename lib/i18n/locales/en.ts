@@ -70,7 +70,7 @@ export const en: Translations = {
     noNotes: 'No notes',
     discountContainerBadge: 'Discount',
     discountContainerTitle: 'Discount container',
-    discountContainerDescription: 'This task is a discount container, so its expected duration is calculated shorter than a normal container.',
+    discountContainerDescription: 'This task is a discount container. There is no fixed time limit for discount containers yet. We are reviewing the data and working toward realistic expectations, so the expected duration is mainly indicative for now.',
   },
   taskForm: {
     title: 'Start task',
