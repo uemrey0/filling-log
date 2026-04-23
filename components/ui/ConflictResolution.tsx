@@ -9,6 +9,7 @@ import { calcExpectedMinutes, formatTime } from '@/lib/business'
 export interface ConflictInfo {
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   startedAt: string
@@ -120,8 +121,8 @@ export function ConflictResolution({ conflicts, onResolved, onCancel, submitting
     : current?.colliCount ?? 0
   const personnelCount = Math.max(1, current?.sessions.length ?? 1)
   const newExpected = useMemo(
-    () => calcExpectedMinutes(doneColli, personnelCount),
-    [doneColli, personnelCount],
+    () => calcExpectedMinutes(doneColli, personnelCount, current?.discountContainer ?? false),
+    [current?.discountContainer, doneColli, personnelCount],
   )
 
   const canAdvance = currentRes.choice !== null && remainingValid

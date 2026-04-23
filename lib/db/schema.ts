@@ -30,6 +30,7 @@ export const tasks = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     department: varchar('department', { length: 50 }).notNull(),
+    discountContainer: boolean('discount_container').notNull().default(false),
     colliCount: integer('colli_count').notNull(),
     expectedMinutes: integer('expected_minutes').notNull(),
     notes: text('notes'),

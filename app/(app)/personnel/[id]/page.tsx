@@ -24,6 +24,7 @@ interface SessionDetail {
   workDate: string
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   expectedSessionMinutes?: number
@@ -116,6 +117,7 @@ export default function PersonnelDetailPage() {
   const [customTo, setCustomTo] = useState(initialRange?.dateTo ?? '')
   const [showFilters, setShowFilters] = useState(false)
   const [showActions, setShowActions] = useState(false)
+  const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
   const [appliedPreset, setAppliedPreset] = useState<Preset>('7d')
@@ -402,7 +404,21 @@ export default function PersonnelDetailPage() {
           </div>
           {active.map((s) => (
             <div key={s.id} className="mt-1.5 text-xs text-gray-600">
-              {getDepartmentLabel(s.department, lang)} · {s.colliCount} colli · {t('tasks.started')}: {formatTime(s.startedAt)}
+              <span className="inline-flex items-center gap-1.5">
+                <span>{getDepartmentLabel(s.department, lang)}</span>
+                {s.discountContainer && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscountInfo(true)}
+                    className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-50 text-[10px] font-black text-red-600 ring-1 ring-red-200"
+                    aria-label={t('tasks.discountContainerBadge')}
+                    title={t('tasks.discountContainerBadge')}
+                  >
+                    %
+                  </button>
+                )}
+                <span>· {s.colliCount} colli · {t('tasks.started')}: {formatTime(s.startedAt)}</span>
+              </span>
             </div>
           ))}
         </Card>
@@ -558,6 +574,8 @@ export default function PersonnelDetailPage() {
                       accentColor={perfColor}
                       title={getDepartmentLabel(s.department, lang)}
                       subtitle={`${formatDate(s.workDate)} · ${s.colliCount} ${t('tasks.colli')}`}
+                      metaBadgeLabel={s.discountContainer ? t('tasks.discountContainerBadge') : undefined}
+                      onMetaBadgeClick={s.discountContainer ? () => setShowDiscountInfo(true) : undefined}
                       startTime={formatTime(s.startedAt)}
                       endTime={s.endedAt ? formatTime(s.endedAt) : null}
                       plannedEndTime={s.endedAt
@@ -585,6 +603,14 @@ export default function PersonnelDetailPage() {
           </>
         )}
       </div>
+
+      <ModalOrSheet open={showDiscountInfo} onClose={() => setShowDiscountInfo(false)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerDescription')}</p>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerNote')}</p>
+        </div>
+      </ModalOrSheet>
 
       {/* Filter Sheet */}
       <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>

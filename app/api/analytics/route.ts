@@ -17,6 +17,7 @@ type AnalyticsSessionRow = {
   personnelId: string
   personnelName: string
   department: string
+  discountContainer: boolean
   workDate: string
   colliCount: number
   expectedMinutes: number
@@ -28,6 +29,7 @@ type AnalyticsSessionRow = {
 type TaskTimingRow = {
   taskId: string
   colliCount: number
+  discountContainer: boolean
   startedAt: Date
 }
 
@@ -53,6 +55,7 @@ function buildTaskTimingMap(rows: TaskTimingRow[]): Map<string, TaskTimingSummar
     const summary = calcTaskProjectedExpectedMinutes(
       taskRows[0]!.colliCount,
       taskRows.map((row) => row.startedAt),
+      taskRows[0]!.discountContainer,
     )
     if (summary) summaries.set(taskId, summary)
   }
@@ -70,6 +73,7 @@ async function loadTaskTimingSummaries(
     .select({
       taskId: taskSessions.taskId,
       colliCount: tasks.colliCount,
+      discountContainer: tasks.discountContainer,
       startedAt: taskSessions.startedAt,
     })
     .from(taskSessions)
@@ -161,6 +165,7 @@ export async function GET(request: NextRequest) {
           personnelId: taskSessions.personnelId,
           personnelName: personnel.fullName,
           department: tasks.department,
+          discountContainer: tasks.discountContainer,
           workDate: taskSessions.workDate,
           colliCount: tasks.colliCount,
           expectedMinutes: tasks.expectedMinutes,

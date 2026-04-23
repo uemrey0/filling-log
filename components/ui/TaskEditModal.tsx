@@ -16,6 +16,7 @@ import type { Personnel } from '@/lib/db/schema'
 interface EditableTask {
   id: string
   department: string
+  discountContainer: boolean
   colliCount: number
   notes: string | null
   sessions: Array<{
@@ -70,6 +71,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   const [personnel, setPersonnel] = useState<Personnel[]>([])
   const [selectedPersonnel, setSelectedPersonnel] = useState<PersonnelChip[]>([])
   const [department, setDepartment] = useState('')
+  const [discountContainer, setDiscountContainer] = useState(false)
   const [colliCount, setColliCount] = useState('')
   const [notes, setNotes] = useState('')
   const [startTimeEdits, setStartTimeEdits] = useState<StartTimeEdit[]>([])
@@ -99,6 +101,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   useEffect(() => {
     if (!open || !task) return
     setDepartment(task.department)
+    setDiscountContainer(task.discountContainer)
     setColliCount(String(task.colliCount))
     setNotes(task.notes ?? '')
     setErrors({})
@@ -193,7 +196,11 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
   const colliNumber = Number(colliCount)
   const colliValid = Number.isFinite(colliNumber) && Number.isInteger(colliNumber) && colliNumber >= 1 && colliNumber <= 9999
   const expectedPreview = isActive && colliValid
-    ? calcExpectedMinutes(colliNumber, Math.max(1, isActive ? selectedPersonnel.length : 1))
+      ? calcExpectedMinutes(
+      colliNumber,
+      Math.max(1, isActive ? selectedPersonnel.length : 1),
+      discountContainer,
+    )
     : null
 
   const handleAddNew = async (name: string): Promise<PersonnelChip> => {
@@ -242,6 +249,7 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
       }
       if (isActive) {
         body.department = department
+        body.discountContainer = discountContainer
         body.colliCount = colliNumber
         body.personnelIds = selectedPersonnel.map((p) => p.id)
       }
@@ -372,6 +380,38 @@ export function TaskEditModal({ open, task, onClose, onSaved }: TaskEditModalPro
               onChange={(e) => setDepartment(e.target.value)}
               error={errors.department}
             />
+          )}
+
+          {isActive && (
+            <div className="space-y-1.5">
+              <div className="text-sm font-medium text-gray-900">{t('taskForm.discountContainer')}</div>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setDiscountContainer(false)}
+                  aria-pressed={!discountContainer}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                    !discountContainer
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {t('common.no')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountContainer(true)}
+                  aria-pressed={discountContainer}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all ${
+                    discountContainer
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {t('common.yes')}
+                </button>
+              </div>
+            </div>
           )}
 
           {isActive && (

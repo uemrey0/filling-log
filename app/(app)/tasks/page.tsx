@@ -6,6 +6,7 @@ import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
 import { getDepartmentLabel } from '@/lib/departments'
@@ -18,6 +19,7 @@ interface SessionRow {
   sessionId: string
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   expectedSessionMinutes: number
@@ -47,6 +49,7 @@ interface PersonnelEntry {
 interface TaskGroup {
   taskId: string
   department: string
+  discountContainer: boolean
   colliCount: number
   expectedMinutes: number
   workDate: string
@@ -83,6 +86,7 @@ function groupByTask(sessions: SessionRow[]): TaskGroup[] {
       group = {
         taskId: s.taskId,
         department: s.department,
+        discountContainer: s.discountContainer,
         colliCount: s.colliCount,
         expectedMinutes: s.expectedMinutes,
         workDate: s.workDate,
@@ -145,7 +149,11 @@ function getPlannedEndTsForGroup(group: TaskGroup): number | null {
   const anchorTs = Math.min(...startTimes.map((value) => new Date(value).getTime()).filter((ts) => Number.isFinite(ts)))
   if (!Number.isFinite(anchorTs)) return null
 
-  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(group.colliCount, startTimes)
+  const projectedExpectedMinutes = calcExpectedMinutesFromSessionStarts(
+    group.colliCount,
+    startTimes,
+    group.discountContainer,
+  )
   return anchorTs + (projectedExpectedMinutes + group.totalPausedMinutes) * 60000
 }
 
@@ -159,6 +167,7 @@ export default function TasksPage() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [showDiscountInfo, setShowDiscountInfo] = useState(false)
 
   const applySelectedDate = (nextDate: string) => {
     if (nextDate === selectedDate) return
@@ -313,6 +322,8 @@ export default function TasksPage() {
                     accentColor={group.isActive ? '#80BC17' : (perfColor ?? '#D1D5DB')}
                     title={personnelSummary}
                     subtitle={`${departmentLabel} · ${group.colliCount} ${t('tasks.colli')}`}
+                    metaBadgeLabel={group.discountContainer ? t('tasks.discountContainerBadge') : undefined}
+                    onMetaBadgeClick={group.discountContainer ? () => setShowDiscountInfo(true) : undefined}
                     startTime={formatTime(group.startedAt)}
                     endTime={group.endedAt ? formatTime(group.endedAt) : null}
                     plannedEndTime={plannedEndTime}
@@ -338,6 +349,14 @@ export default function TasksPage() {
           )}
         </>
       )}
+
+      <ModalOrSheet open={showDiscountInfo} onClose={() => setShowDiscountInfo(false)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerDescription')}</p>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerNote')}</p>
+        </div>
+      </ModalOrSheet>
     </div>
   )
 }

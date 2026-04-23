@@ -8,6 +8,8 @@ interface TaskSummaryCardProps {
   accentColor: string
   title: string
   subtitle: string
+  metaBadgeLabel?: string
+  onMetaBadgeClick?: () => void
   startTime: string
   endTime?: string | null
   plannedEndTime?: string | null
@@ -33,6 +35,8 @@ export function TaskSummaryCard({
   accentColor,
   title,
   subtitle,
+  metaBadgeLabel,
+  onMetaBadgeClick,
   startTime,
   endTime,
   plannedEndTime,
@@ -56,6 +60,21 @@ export function TaskSummaryCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-gray-900 text-sm leading-snug truncate">{title}</span>
+              {metaBadgeLabel && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onMetaBadgeClick?.()
+                  }}
+                  className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-50 text-[10px] font-black text-red-600 ring-1 ring-red-200"
+                  aria-label={metaBadgeLabel}
+                  title={metaBadgeLabel}
+                >
+                  %
+                </button>
+              )}
               {hasNotes && (
                 <span
                   className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 text-amber-700"

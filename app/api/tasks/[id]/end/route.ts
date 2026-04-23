@@ -146,7 +146,11 @@ export async function POST(
       if (remainingColli !== null && remainingColli > 0) {
         const newColliCount = task.colliCount - remainingColli
         const doneByCount = Math.max(1, endingActiveSessions.length || activeSessions.length)
-        const newExpectedMinutes = calcExpectedMinutes(newColliCount, doneByCount)
+        const newExpectedMinutes = calcExpectedMinutes(
+          newColliCount,
+          doneByCount,
+          task.discountContainer,
+        )
         await txDb
           .update(tasks)
           .set({
@@ -161,8 +165,13 @@ export async function POST(
             .insert(tasks)
             .values({
               department: task.department,
+              discountContainer: task.discountContainer,
               colliCount: remainingColli,
-              expectedMinutes: calcExpectedMinutes(remainingColli, continuingActiveSessions.length),
+              expectedMinutes: calcExpectedMinutes(
+                remainingColli,
+                continuingActiveSessions.length,
+                task.discountContainer,
+              ),
               notes: task.notes,
             })
             .returning()
