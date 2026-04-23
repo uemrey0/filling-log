@@ -429,6 +429,7 @@ export default function TaskDetailPage() {
         <div className="space-y-3">
           <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
           <p className="text-sm text-gray-700">{t('tasks.discountContainerDescription')}</p>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerNote')}</p>
         </div>
       </ModalOrSheet>
 

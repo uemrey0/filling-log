@@ -68,7 +68,8 @@ export const nl = {
     noNotes: 'Geen notities',
     discountContainerBadge: 'Actie',
     discountContainerTitle: 'Actiecontainer',
-    discountContainerDescription: 'Deze taak is een actiecontainer. Voor actiecontainers is er nog geen definitieve tijdslimiet. We analyseren de data en werken aan realistische verwachtingen, dus de verwachte duur is op dit moment vooral indicatief.',
+    discountContainerDescription: 'Deze taak is een actiecontainer. Daarom wordt de verwachte duur korter berekend dan bij een normale container.',
+    discountContainerNote: 'Voor actiecontainers is er nog geen definitieve tijdslimiet. We analyseren de data en werken aan realistische verwachtingen, dus de verwachte duur is op dit moment vooral indicatief.',
   },
   taskForm: {
     title: 'Taak starten',
@@ -77,6 +78,7 @@ export const nl = {
     selectDepartment: 'Selecteer afdeling',
     discountContainer: 'Is dit een actiecontainer?',
     discountContainerHint: 'Actiecontainers krijgen automatisch een kortere verwachte duur.',
+    discountContainerInfoDescription: 'Kies of deze taak een actiecontainer is. Actiecontainers worden korter ingeschat dan normale containers.',
     discountContainerYes: 'Ja, actie',
     discountContainerNo: 'Nee, normaal',
     colliCount: 'Colli-aantal',

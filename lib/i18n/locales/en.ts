@@ -70,7 +70,8 @@ export const en: Translations = {
     noNotes: 'No notes',
     discountContainerBadge: 'Discount',
     discountContainerTitle: 'Discount container',
-    discountContainerDescription: 'This task is a discount container. There is no fixed time limit for discount containers yet. We are reviewing the data and working toward realistic expectations, so the expected duration is mainly indicative for now.',
+    discountContainerDescription: 'This task is a discount container, so its expected duration is calculated shorter than a normal container.',
+    discountContainerNote: 'There is no fixed time limit for discount containers yet. We are reviewing the data and working toward realistic expectations, so the expected duration is mainly indicative for now.',
   },
   taskForm: {
     title: 'Start task',
@@ -79,6 +80,7 @@ export const en: Translations = {
     selectDepartment: 'Select department',
     discountContainer: 'Is this a discount container?',
     discountContainerHint: 'Discount containers automatically get a shorter expected duration.',
+    discountContainerInfoDescription: 'Choose whether this task is a discount container. Discount containers are estimated shorter than normal containers.',
     discountContainerYes: 'Yes, discount',
     discountContainerNo: 'No, normal',
     colliCount: 'Colli count',

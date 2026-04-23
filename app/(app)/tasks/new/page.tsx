@@ -31,6 +31,7 @@ export default function NewTaskPage() {
   const [selectedPersonnel, setSelectedPersonnel] = useState<PersonnelChip[]>([])
   const [conflicts, setConflicts] = useState<ConflictInfo[]>([])
   const [showConflicts, setShowConflicts] = useState(false)
+  const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checkingConflicts, setCheckingConflicts] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -229,7 +230,18 @@ export default function NewTaskPage() {
           </div>
 
           <div className="space-y-1.5">
-            <div className="text-sm font-medium text-gray-900">{t('taskForm.discountContainer')}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-medium text-gray-900">{t('taskForm.discountContainer')}</div>
+              <button
+                type="button"
+                onClick={() => setShowDiscountInfo(true)}
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500 ring-1 ring-gray-200 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+                aria-label={t('tasks.discountContainerTitle')}
+                title={t('tasks.discountContainerTitle')}
+              >
+                ?
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
               <button
                 type="button"
@@ -292,6 +304,14 @@ export default function NewTaskPage() {
           onCancel={() => setShowConflicts(false)}
           submitting={loading}
         />
+      </ModalOrSheet>
+
+      <ModalOrSheet open={showDiscountInfo} onClose={() => setShowDiscountInfo(false)}>
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">{t('tasks.discountContainerTitle')}</h2>
+          <p className="text-sm text-gray-700">{t('taskForm.discountContainerInfoDescription')}</p>
+          <p className="text-sm text-gray-700">{t('tasks.discountContainerNote')}</p>
+        </div>
       </ModalOrSheet>
     </div>
   )
