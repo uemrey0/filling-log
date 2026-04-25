@@ -12,6 +12,7 @@ import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSu
 import { TaskEditModal } from '@/components/ui/TaskEditModal'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { EndTaskModal, type EndTaskConfirmData } from '@/components/ui/EndTaskModal'
+import { RatingModal, type RatingTarget, type RatingData } from '@/components/ui/RatingModal'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
@@ -399,6 +400,8 @@ export default function DashboardPage() {
   const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [endingTask, setEndingTask] = useState<TaskGroup | null>(null)
   const [endingSaving, setEndingSaving] = useState(false)
+  const [ratingQueue, setRatingQueue] = useState<RatingTarget[]>([])
+  const [ratingSaving, setRatingSaving] = useState(false)
 
   const load = useCallback(async ({ showToastOnError = false }: { showToastOnError?: boolean } = {}) => {
     try {
@@ -486,8 +489,17 @@ export default function DashboardPage() {
         await load({ showToastOnError: false })
         return
       }
+
+      const continuingIds = new Set(data.continuingPersonnelIds ?? [])
+      const taskId = endingTask.taskId
+      const toRate: RatingTarget[] = endingTask.personnel
+        .filter((p) => !continuingIds.has(p.personnelId))
+        .map((p) => ({ personnelId: p.personnelId, personnelName: p.personnelName, taskId }))
+
       setEndingTask(null)
       await load({ showToastOnError: false })
+
+      if (toRate.length > 0) setRatingQueue(toRate)
     } catch {
       const fallback = lang === 'nl' ? 'Actie kon niet worden uitgevoerd.' : 'Action could not be completed.'
       toast.error(getDashboardErrorMessage(lang, undefined, fallback))
@@ -495,6 +507,29 @@ export default function DashboardPage() {
       setEndingSaving(false)
     }
   }
+
+  const submitRating = async (data: RatingData) => {
+    setRatingSaving(true)
+    try {
+      await apiFetch(`/api/personnel/${data.personnelId}/ratings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: data.taskId,
+          workEthicScore: data.workEthicScore,
+          qualityScore: data.qualityScore,
+          teamworkScore: data.teamworkScore,
+          comment: data.comment || undefined,
+        }),
+      })
+    } finally {
+      setRatingSaving(false)
+      setRatingQueue((prev) => prev.slice(1))
+    }
+  }
+
+  const skipRating = () => setRatingQueue((prev) => prev.slice(1))
+  const skipAllRatings = () => setRatingQueue([])
 
   const openEdit = async (taskId: string) => {
     setEditLoadingId(taskId)
@@ -971,6 +1006,16 @@ export default function DashboardPage() {
             })),
         } : null}
         loading={endingSaving}
+      />
+
+      {/* Rating Modal */}
+      <RatingModal
+        open={ratingQueue.length > 0}
+        queue={ratingQueue}
+        onSubmit={submitRating}
+        onSkip={skipRating}
+        onSkipAll={skipAllRatings}
+        loading={ratingSaving}
       />
 
       {/* Task Notes Modal/Sheet */}
