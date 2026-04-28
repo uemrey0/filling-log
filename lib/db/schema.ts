@@ -144,6 +144,33 @@ export const departmentDailyStats = pgTable(
   ],
 )
 
+export const personnelDepartmentDailyStats = pgTable(
+  'personnel_department_daily_stats',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    personnelId: uuid('personnel_id').notNull().references(() => personnel.id, { onDelete: 'cascade' }),
+    workDate: date('work_date').notNull(),
+    department: varchar('department', { length: 50 }).notNull(),
+    sessionCount: integer('session_count').notNull().default(0),
+    actualMinutesSum: real('actual_minutes_sum').notNull().default(0),
+    expectedMinutesSum: real('expected_minutes_sum').notNull().default(0),
+    diffMinutesSum: real('diff_minutes_sum').notNull().default(0),
+    actualPerColliSum: real('actual_per_colli_sum').notNull().default(0),
+    actualPerColliCount: integer('actual_per_colli_count').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('personnel_department_daily_stats_unique').on(
+      table.personnelId,
+      table.workDate,
+      table.department,
+    ),
+    index('personnel_department_daily_stats_personnel_idx').on(table.personnelId),
+    index('personnel_department_daily_stats_date_idx').on(table.workDate),
+    index('personnel_department_daily_stats_dept_idx').on(table.department),
+  ],
+)
+
 export const personnelRelations = relations(personnel, ({ many }) => ({
   sessions: many(taskSessions),
   comments: many(personnelComments),
@@ -183,3 +210,4 @@ export type PersonnelRating = typeof personnelRatings.$inferSelect
 export type NewPersonnelRating = typeof personnelRatings.$inferInsert
 export type PersonnelDailyStat = typeof personnelDailyStats.$inferSelect
 export type DepartmentDailyStat = typeof departmentDailyStats.$inferSelect
+export type PersonnelDepartmentDailyStat = typeof personnelDepartmentDailyStats.$inferSelect

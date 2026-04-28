@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { personnel, personnelDailyStats, departmentDailyStats } from '@/lib/db/schema'
+import {
+  personnel,
+  personnelDailyStats,
+  departmentDailyStats,
+  personnelDepartmentDailyStats,
+} from '@/lib/db/schema'
 import { roundToOne } from '@/lib/business'
 import { eq, and, gte, lte, sum } from 'drizzle-orm'
 
@@ -17,12 +22,23 @@ export async function GET(request: NextRequest) {
     const personnelId = searchParams.get('personnelId')
     const department = searchParams.get('department')
 
+    const hasDepartmentFilter = Boolean(department)
+    const hasPersonnelFilter = Boolean(personnelId)
+
     // Personnel stats conditions
     const pConditions = []
     if (dateFrom) pConditions.push(gte(personnelDailyStats.workDate, dateFrom))
     if (dateTo) pConditions.push(lte(personnelDailyStats.workDate, dateTo))
     if (personnelId) pConditions.push(eq(personnelDailyStats.personnelId, personnelId))
     const pWhere = pConditions.length > 0 ? and(...pConditions) : undefined
+
+    // Personnel+department stats conditions
+    const pdConditions = []
+    if (dateFrom) pdConditions.push(gte(personnelDepartmentDailyStats.workDate, dateFrom))
+    if (dateTo) pdConditions.push(lte(personnelDepartmentDailyStats.workDate, dateTo))
+    if (personnelId) pdConditions.push(eq(personnelDepartmentDailyStats.personnelId, personnelId))
+    if (department) pdConditions.push(eq(personnelDepartmentDailyStats.department, department))
+    const pdWhere = pdConditions.length > 0 ? and(...pdConditions) : undefined
 
     // Department stats conditions
     const dConditions = []
@@ -32,15 +48,25 @@ export async function GET(request: NextRequest) {
     const dWhere = dConditions.length > 0 ? and(...dConditions) : undefined
 
     // Overview from personnel stats
-    const [overviewRow] = await db
-      .select({
-        sessionCount: sum(personnelDailyStats.sessionCount),
-        actualSum: sum(personnelDailyStats.actualMinutesSum),
-        expectedSum: sum(personnelDailyStats.expectedMinutesSum),
-        diffSum: sum(personnelDailyStats.diffMinutesSum),
-      })
-      .from(personnelDailyStats)
-      .where(pWhere)
+    const [overviewRow] = hasDepartmentFilter
+      ? await db
+        .select({
+          sessionCount: sum(personnelDepartmentDailyStats.sessionCount),
+          actualSum: sum(personnelDepartmentDailyStats.actualMinutesSum),
+          expectedSum: sum(personnelDepartmentDailyStats.expectedMinutesSum),
+          diffSum: sum(personnelDepartmentDailyStats.diffMinutesSum),
+        })
+        .from(personnelDepartmentDailyStats)
+        .where(pdWhere)
+      : await db
+        .select({
+          sessionCount: sum(personnelDailyStats.sessionCount),
+          actualSum: sum(personnelDailyStats.actualMinutesSum),
+          expectedSum: sum(personnelDailyStats.expectedMinutesSum),
+          diffSum: sum(personnelDailyStats.diffMinutesSum),
+        })
+        .from(personnelDailyStats)
+        .where(pWhere)
 
     const totalSessions = Number(overviewRow?.sessionCount ?? 0)
 
@@ -60,21 +86,37 @@ export async function GET(request: NextRequest) {
     }
 
     // By personnel
-    const personnelRows = await db
-      .select({
-        personnelId: personnelDailyStats.personnelId,
-        personnelName: personnel.fullName,
-        sessionCount: sum(personnelDailyStats.sessionCount),
-        expectedSum: sum(personnelDailyStats.expectedMinutesSum),
-        actualSum: sum(personnelDailyStats.actualMinutesSum),
-        diffSum: sum(personnelDailyStats.diffMinutesSum),
-        perColliSum: sum(personnelDailyStats.actualPerColliSum),
-        perColliCount: sum(personnelDailyStats.actualPerColliCount),
-      })
-      .from(personnelDailyStats)
-      .innerJoin(personnel, eq(personnelDailyStats.personnelId, personnel.id))
-      .where(pWhere)
-      .groupBy(personnelDailyStats.personnelId, personnel.fullName)
+    const personnelRows = hasDepartmentFilter
+      ? await db
+        .select({
+          personnelId: personnelDepartmentDailyStats.personnelId,
+          personnelName: personnel.fullName,
+          sessionCount: sum(personnelDepartmentDailyStats.sessionCount),
+          expectedSum: sum(personnelDepartmentDailyStats.expectedMinutesSum),
+          actualSum: sum(personnelDepartmentDailyStats.actualMinutesSum),
+          diffSum: sum(personnelDepartmentDailyStats.diffMinutesSum),
+          perColliSum: sum(personnelDepartmentDailyStats.actualPerColliSum),
+          perColliCount: sum(personnelDepartmentDailyStats.actualPerColliCount),
+        })
+        .from(personnelDepartmentDailyStats)
+        .innerJoin(personnel, eq(personnelDepartmentDailyStats.personnelId, personnel.id))
+        .where(pdWhere)
+        .groupBy(personnelDepartmentDailyStats.personnelId, personnel.fullName)
+      : await db
+        .select({
+          personnelId: personnelDailyStats.personnelId,
+          personnelName: personnel.fullName,
+          sessionCount: sum(personnelDailyStats.sessionCount),
+          expectedSum: sum(personnelDailyStats.expectedMinutesSum),
+          actualSum: sum(personnelDailyStats.actualMinutesSum),
+          diffSum: sum(personnelDailyStats.diffMinutesSum),
+          perColliSum: sum(personnelDailyStats.actualPerColliSum),
+          perColliCount: sum(personnelDailyStats.actualPerColliCount),
+        })
+        .from(personnelDailyStats)
+        .innerJoin(personnel, eq(personnelDailyStats.personnelId, personnel.id))
+        .where(pWhere)
+        .groupBy(personnelDailyStats.personnelId, personnel.fullName)
 
     const byPersonnel = personnelRows
       .map((r) => {
@@ -95,17 +137,29 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => (a.avgActualPerColli ?? Infinity) - (b.avgActualPerColli ?? Infinity))
 
     // By department
-    const deptRows = await db
-      .select({
-        department: departmentDailyStats.department,
-        sessionCount: sum(departmentDailyStats.sessionCount),
-        expectedSum: sum(departmentDailyStats.expectedMinutesSum),
-        actualSum: sum(departmentDailyStats.actualMinutesSum),
-        diffSum: sum(departmentDailyStats.diffMinutesSum),
-      })
-      .from(departmentDailyStats)
-      .where(dWhere)
-      .groupBy(departmentDailyStats.department)
+    const deptRows = hasPersonnelFilter
+      ? await db
+        .select({
+          department: personnelDepartmentDailyStats.department,
+          sessionCount: sum(personnelDepartmentDailyStats.sessionCount),
+          expectedSum: sum(personnelDepartmentDailyStats.expectedMinutesSum),
+          actualSum: sum(personnelDepartmentDailyStats.actualMinutesSum),
+          diffSum: sum(personnelDepartmentDailyStats.diffMinutesSum),
+        })
+        .from(personnelDepartmentDailyStats)
+        .where(pdWhere)
+        .groupBy(personnelDepartmentDailyStats.department)
+      : await db
+        .select({
+          department: departmentDailyStats.department,
+          sessionCount: sum(departmentDailyStats.sessionCount),
+          expectedSum: sum(departmentDailyStats.expectedMinutesSum),
+          actualSum: sum(departmentDailyStats.actualMinutesSum),
+          diffSum: sum(departmentDailyStats.diffMinutesSum),
+        })
+        .from(departmentDailyStats)
+        .where(dWhere)
+        .groupBy(departmentDailyStats.department)
 
     const byDepartment = deptRows
       .map((r) => {

@@ -15,6 +15,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from '@/lib/db/schema'
 import type { ClientBase } from 'pg'
 import type { NodePgClient } from 'drizzle-orm/node-postgres'
+import { refreshAnalyticsForCompletedSessions } from '@/lib/analytics-refresh'
 
 type SessionRow = {
   sessionId: string
@@ -32,6 +33,12 @@ type SessionRow = {
   pausedSince: Date | null
   totalPausedMinutes: number
   workDate: string
+}
+
+type EndedAnalyticsSession = {
+  personnelId: string
+  workDate: string
+  department: string
 }
 
 function withProjectedMetrics(rows: SessionRow[]) {
@@ -238,19 +245,41 @@ export async function POST(request: NextRequest) {
 
     const result = await withTransaction(async (client: ClientBase) => {
       const txDb = drizzle(client as unknown as NodePgClient, { schema })
+      const endedSessions: EndedAnalyticsSession[] = []
 
       for (const res of resolutions) {
         if (res.isDone) {
+          const conflictSessions = await txDb
+            .select({
+              personnelId: taskSessions.personnelId,
+              workDate: taskSessions.workDate,
+              department: tasks.department,
+            })
+            .from(taskSessions)
+            .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+            .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
+
           await txDb
             .update(taskSessions)
             .set({ endedAt: now, updatedAt: now })
             .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
+
+          for (const session of conflictSessions) {
+            endedSessions.push({
+              personnelId: session.personnelId,
+              workDate: String(session.workDate).slice(0, 10),
+              department: session.department,
+            })
+          }
         } else {
           const remainingColli = res.remainingColli ?? 0
           const selectedPersonnelSet = new Set(personnelIds)
 
           const activeSessions = await txDb
-            .select({ personnelId: taskSessions.personnelId })
+            .select({
+              personnelId: taskSessions.personnelId,
+              workDate: taskSessions.workDate,
+            })
             .from(taskSessions)
             .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
 
@@ -285,6 +314,14 @@ export async function POST(request: NextRequest) {
               .set({ endedAt: now, updatedAt: now })
               .where(and(eq(taskSessions.taskId, res.taskId), isNull(taskSessions.endedAt)))
 
+            for (const session of activeSessions) {
+              endedSessions.push({
+                personnelId: session.personnelId,
+                workDate: String(session.workDate).slice(0, 10),
+                department: originalTask.department,
+              })
+            }
+
             if (otherActiveSessions.length > 0 && remainingColli > 0) {
               const [continuationTask] = await txDb
                 .insert(tasks)
@@ -314,10 +351,28 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const priorActiveSessions = await txDb
+        .select({
+          personnelId: taskSessions.personnelId,
+          workDate: taskSessions.workDate,
+          department: tasks.department,
+        })
+        .from(taskSessions)
+        .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+        .where(and(inArray(taskSessions.personnelId, personnelIds), isNull(taskSessions.endedAt)))
+
       await txDb
         .update(taskSessions)
         .set({ endedAt: now, updatedAt: now })
         .where(and(inArray(taskSessions.personnelId, personnelIds), isNull(taskSessions.endedAt)))
+
+      for (const session of priorActiveSessions) {
+        endedSessions.push({
+          personnelId: session.personnelId,
+          workDate: String(session.workDate).slice(0, 10),
+          department: session.department,
+        })
+      }
 
       const [task] = await txDb
         .insert(tasks)
@@ -335,10 +390,12 @@ export async function POST(request: NextRequest) {
         .values(personnelIds.map((personnelId) => ({ taskId: task.id, personnelId, startedAt: now, workDate })))
         .returning()
 
-      return { task, sessions: newSessions }
+      return { task, sessions: newSessions, endedSessions }
     })
 
-    return Response.json(result, { status: 201 })
+    void refreshAnalyticsForCompletedSessions(result.endedSessions).catch(console.error)
+
+    return Response.json({ task: result.task, sessions: result.sessions }, { status: 201 })
   } catch (err) {
     console.error(err)
     return Response.json({ error: 'Failed to start task' }, { status: 500 })

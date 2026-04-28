@@ -39,6 +39,12 @@ interface PeriodStats {
   avgActualPerColli: number | null
 }
 
+interface DepartmentStat {
+  department: string
+  sessionCount: number
+  avgDiff: number | null
+}
+
 interface PersonnelData extends Personnel {
   sessions: SessionDetail[]
   total: number
@@ -46,6 +52,7 @@ interface PersonnelData extends Personnel {
   limit: number
   stats: PeriodStats
   prevStats: PeriodStats | null
+  departmentStats: DepartmentStat[]
 }
 
 interface Comment {
@@ -335,19 +342,7 @@ export default function PersonnelDetailPage() {
   const completed = data.sessions.filter((s) => s.endedAt && s.performanceDiff !== null)
   const active = data.sessions.filter((s) => !s.endedAt)
 
-  const deptMap = new Map<string, { count: number; totalDiff: number }>()
-  for (const s of completed) {
-    const existing = deptMap.get(s.department)
-    if (!existing) {
-      deptMap.set(s.department, { count: 1, totalDiff: Number(s.performanceDiff!) })
-    } else {
-      existing.count++
-      existing.totalDiff += Number(s.performanceDiff!)
-    }
-  }
-  const deptStats = Array.from(deptMap.entries())
-    .map(([dept, { count, totalDiff }]) => ({ dept, count, avgDiff: totalDiff / count }))
-    .sort((a, b) => b.count - a.count)
+  const deptStats = data.departmentStats ?? []
 
   const PRESETS: { key: Preset; label: string }[] = [
     { key: '7d', label: t('personnel.last7d') },
@@ -529,9 +524,9 @@ export default function PersonnelDetailPage() {
             {/* Always-visible chip preview */}
             {!showDepts && (
               <div className="flex flex-wrap gap-1.5">
-                {deptStats.slice(0, 4).map(({ dept }) => (
-                  <span key={dept} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                    {getDepartmentLabel(dept, lang)}
+                {deptStats.slice(0, 4).map(({ department }) => (
+                  <span key={department} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                    {getDepartmentLabel(department, lang)}
                   </span>
                 ))}
                 {deptStats.length > 4 && (
@@ -545,13 +540,13 @@ export default function PersonnelDetailPage() {
           {showDepts && (
             <Card padding="none" className="mt-2">
               <div className="divide-y divide-gray-100">
-                {deptStats.map(({ dept, count, avgDiff: diff }) => (
-                  <div key={dept} className="flex items-center justify-between px-4 py-3 gap-3">
+                {deptStats.map(({ department, sessionCount, avgDiff: diff }) => (
+                  <div key={department} className="flex items-center justify-between px-4 py-3 gap-3">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900">{getDepartmentLabel(dept, lang)}</div>
-                      <div className="text-xs text-gray-500">{count} {t('analytics.sessionCount')}</div>
+                      <div className="text-sm font-medium text-gray-900">{getDepartmentLabel(department, lang)}</div>
+                      <div className="text-xs text-gray-500">{sessionCount} {t('analytics.sessionCount')}</div>
                     </div>
-                    <PerformanceDiff diffMinutes={diff} />
+                    <PerformanceDiff diffMinutes={diff === null ? 0 : diff} />
                   </div>
                 ))}
               </div>

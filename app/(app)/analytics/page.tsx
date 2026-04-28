@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { Skeleton } from '@/components/ui/Skeleton'
-import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
+import { getDepartmentLabel } from '@/lib/departments'
 import { formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
@@ -52,7 +52,6 @@ export default function AnalyticsPage() {
   const [filters, setFilters] = useState({
     dateFrom: thirtyDaysAgo,
     dateTo: today,
-    department: '',
   })
   const [applied, setApplied] = useState(filters)
 
@@ -64,7 +63,6 @@ export default function AnalyticsPage() {
         const params = new URLSearchParams()
         if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
         if (applied.dateTo) params.set('dateTo', applied.dateTo)
-        if (applied.department) params.set('department', applied.department)
         const res = await apiFetch(`/api/analytics?${params}`)
         if (!cancelled && res.ok) setData(await res.json())
       } finally {
@@ -81,18 +79,13 @@ export default function AnalyticsPage() {
   }
 
   const handleReset = () => {
-    const reset = { dateFrom: thirtyDaysAgo, dateTo: today, department: '' }
+    const reset = { dateFrom: thirtyDaysAgo, dateTo: today }
     setFilters(reset)
     setApplied(reset)
     setShowFilters(false)
   }
 
-  const departmentOptions = [
-    { value: '', label: t('analytics.allDepartments') },
-    ...DEPARTMENT_KEYS.map((k) => ({ value: k, label: getDepartmentLabel(k, lang) })),
-  ]
-
-  const hasActiveFilter = applied.department || applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today
+  const hasActiveFilter = applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today
 
   return (
     <div className="space-y-5">
@@ -118,12 +111,6 @@ export default function AnalyticsPage() {
 
       {hasActiveFilter && (
         <div className="flex flex-wrap gap-2">
-          {applied.department && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
-              {getDepartmentLabel(applied.department, lang)}
-              <button onClick={() => { setFilters((f) => ({ ...f, department: '' })); setApplied((a) => ({ ...a, department: '' })) }} className="text-gray-400 hover:text-gray-700">×</button>
-            </span>
-          )}
           {(applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today) && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
               {applied.dateFrom} – {applied.dateTo}
@@ -253,17 +240,6 @@ export default function AnalyticsPage() {
                 className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.allDepartments')}</label>
-            <select
-              value={filters.department}
-              onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value }))}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {departmentOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
           </div>
 
           <div className="flex gap-3 pt-1">

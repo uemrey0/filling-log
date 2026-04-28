@@ -1,6 +1,12 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { personnel, taskSessions, tasks, personnelDailyStats } from '@/lib/db/schema'
+import {
+  personnel,
+  taskSessions,
+  tasks,
+  personnelDailyStats,
+  personnelDepartmentDailyStats,
+} from '@/lib/db/schema'
 import { personnelSchema } from '@/lib/validations'
 import {
   calcTaskProjectedExpectedMinutes,
@@ -144,6 +150,33 @@ async function getStats(personnelId: string, dateFrom?: string | null, dateTo?: 
   }
 }
 
+async function getDepartmentStats(personnelId: string, dateFrom?: string | null, dateTo?: string | null) {
+  const conditions = [eq(personnelDepartmentDailyStats.personnelId, personnelId)]
+  if (dateFrom) conditions.push(gte(personnelDepartmentDailyStats.workDate, dateFrom))
+  if (dateTo) conditions.push(lte(personnelDepartmentDailyStats.workDate, dateTo))
+
+  const rows = await db
+    .select({
+      department: personnelDepartmentDailyStats.department,
+      sessionCount: sum(personnelDepartmentDailyStats.sessionCount),
+      diffSum: sum(personnelDepartmentDailyStats.diffMinutesSum),
+    })
+    .from(personnelDepartmentDailyStats)
+    .where(and(...conditions))
+    .groupBy(personnelDepartmentDailyStats.department)
+
+  return rows
+    .map((row) => {
+      const sessionCount = Number(row.sessionCount ?? 0)
+      return {
+        department: row.department,
+        sessionCount,
+        avgDiff: sessionCount > 0 ? roundToOne(Number(row.diffSum ?? 0) / sessionCount) : null,
+      }
+    })
+    .sort((a, b) => b.sessionCount - a.sessionCount)
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -183,6 +216,7 @@ export async function GET(
     const sessions = enrichSessionsWithProjectedMetrics(rawSessions as SessionRow[], timingMap)
 
     const stats = await getStats(id, dateFrom, dateTo)
+    const departmentStats = await getDepartmentStats(id, dateFrom, dateTo)
 
     // Compute previous period comparison when date range is provided
     let prevStats = null
@@ -206,6 +240,7 @@ export async function GET(
       page,
       limit,
       stats,
+      departmentStats,
       prevStats,
     })
   } catch (err) {

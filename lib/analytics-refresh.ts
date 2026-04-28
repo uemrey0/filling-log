@@ -1,5 +1,11 @@
 import { db } from '@/lib/db'
-import { tasks, taskSessions, personnelDailyStats, departmentDailyStats } from '@/lib/db/schema'
+import {
+  tasks,
+  taskSessions,
+  personnelDailyStats,
+  departmentDailyStats,
+  personnelDepartmentDailyStats,
+} from '@/lib/db/schema'
 import {
   calcTaskProjectedExpectedMinutes,
   calcExpectedMinutesForSession,
@@ -172,4 +178,94 @@ export async function refreshDepartmentDailyStats(
         set: { sessionCount, actualMinutesSum, expectedMinutesSum, diffMinutesSum, updatedAt: new Date() },
       })
   }
+}
+
+// Refresh personnel + department stats for given (personnelId, workDate, department) tuples
+export async function refreshPersonnelDepartmentDailyStats(
+  keys: { personnelId: string; workDate: string; department: string }[],
+): Promise<void> {
+  const unique = new Map<string, { personnelId: string; workDate: string; department: string }>()
+  for (const k of keys) unique.set(`${k.personnelId}|${k.workDate}|${k.department}`, k)
+
+  for (const { personnelId, workDate, department } of unique.values()) {
+    const stats = await computeSessionStats([
+      eq(taskSessions.personnelId, personnelId),
+      eq(taskSessions.workDate, workDate),
+      eq(tasks.department, department),
+    ])
+
+    if (stats.length === 0) {
+      await db.delete(personnelDepartmentDailyStats).where(
+        and(
+          eq(personnelDepartmentDailyStats.personnelId, personnelId),
+          eq(personnelDepartmentDailyStats.workDate, workDate),
+          eq(personnelDepartmentDailyStats.department, department),
+        ),
+      )
+      continue
+    }
+
+    let sessionCount = 0, actualMinutesSum = 0, expectedMinutesSum = 0, diffMinutesSum = 0
+    let actualPerColliSum = 0, actualPerColliCount = 0
+
+    for (const s of stats) {
+      sessionCount++
+      actualMinutesSum += s.actualMinutes
+      expectedMinutesSum += s.expectedSessionMinutes
+      diffMinutesSum += s.diffMinutes
+      if (s.colliCount > 0) { actualPerColliSum += s.actualMinutes / s.colliCount; actualPerColliCount++ }
+    }
+
+    await db.insert(personnelDepartmentDailyStats)
+      .values({
+        personnelId,
+        workDate,
+        department,
+        sessionCount,
+        actualMinutesSum,
+        expectedMinutesSum,
+        diffMinutesSum,
+        actualPerColliSum,
+        actualPerColliCount,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [
+          personnelDepartmentDailyStats.personnelId,
+          personnelDepartmentDailyStats.workDate,
+          personnelDepartmentDailyStats.department,
+        ],
+        set: {
+          sessionCount,
+          actualMinutesSum,
+          expectedMinutesSum,
+          diffMinutesSum,
+          actualPerColliSum,
+          actualPerColliCount,
+          updatedAt: new Date(),
+        },
+      })
+  }
+}
+
+export type AnalyticsRefreshKey = {
+  personnelId: string
+  workDate: string
+  department: string
+}
+
+export async function refreshAnalyticsForCompletedSessions(
+  keys: AnalyticsRefreshKey[],
+): Promise<void> {
+  if (keys.length === 0) return
+
+  await Promise.all([
+    refreshPersonnelDailyStats(
+      keys.map(({ personnelId, workDate }) => ({ personnelId, workDate })),
+    ),
+    refreshDepartmentDailyStats(
+      keys.map(({ workDate, department }) => ({ workDate, department })),
+    ),
+    refreshPersonnelDepartmentDailyStats(keys),
+  ])
 }

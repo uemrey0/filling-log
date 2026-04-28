@@ -10,7 +10,7 @@ import {
   todayDate,
 } from '@/lib/business'
 import { eq, and, isNull, inArray, isNotNull } from 'drizzle-orm'
-import { refreshPersonnelDailyStats, refreshDepartmentDailyStats } from '@/lib/analytics-refresh'
+import { refreshAnalyticsForCompletedSessions } from '@/lib/analytics-refresh'
 import { DEPARTMENT_KEYS, type DepartmentKey } from '@/lib/departments'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -139,6 +139,8 @@ export async function PUT(
       : null
     const startedAt = wantsStartedAt && parsed.data.startedAt ? new Date(parsed.data.startedAt) : null
     const startedAtWorkDate = startedAt ? toLocalDateIso(startedAt) : null
+    const affectsCompletedAnalytics =
+      wantsDepartment || wantsDiscountContainer || wantsColliCount || wantsPersonnelIds || wantsStartedAt
 
     const updated = await withTransaction(async (client: ClientBase) => {
       const txDb = drizzle(client as unknown as NodePgClient, { schema })
@@ -244,6 +246,36 @@ export async function PUT(
       return taskUpdated
     })
 
+    if (updated && affectsCompletedAnalytics) {
+      const completedSessions = await db
+        .select({
+          personnelId: taskSessions.personnelId,
+          workDate: taskSessions.workDate,
+        })
+        .from(taskSessions)
+        .where(and(eq(taskSessions.taskId, id), isNotNull(taskSessions.endedAt)))
+
+      if (completedSessions.length > 0) {
+        const refreshKeys = completedSessions.map((session) => ({
+          personnelId: session.personnelId,
+          workDate: String(session.workDate).slice(0, 10),
+          department: updated.department,
+        }))
+
+        if (wantsDepartment && existing.department !== updated.department) {
+          refreshKeys.push(
+            ...completedSessions.map((session) => ({
+              personnelId: session.personnelId,
+              workDate: String(session.workDate).slice(0, 10),
+              department: existing.department,
+            })),
+          )
+        }
+
+        void refreshAnalyticsForCompletedSessions(refreshKeys).catch(console.error)
+      }
+    }
+
     return Response.json(updated)
   } catch (err) {
     console.error('[PUT /api/tasks/[id]]', err)
@@ -282,10 +314,13 @@ export async function DELETE(
 
     if (!deleted) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
 
-    const personnelKeys = affectedSessions.map((s) => ({ personnelId: s.personnelId, workDate: String(s.workDate).slice(0, 10) }))
-    const deptKeys = affectedSessions.map((s) => ({ workDate: String(s.workDate).slice(0, 10), department: s.department }))
-    void refreshPersonnelDailyStats(personnelKeys).catch(console.error)
-    void refreshDepartmentDailyStats(deptKeys).catch(console.error)
+    void refreshAnalyticsForCompletedSessions(
+      affectedSessions.map((s) => ({
+        personnelId: s.personnelId,
+        workDate: String(s.workDate).slice(0, 10),
+        department: s.department,
+      })),
+    ).catch(console.error)
 
     return Response.json({ success: true })
   } catch (err) {
