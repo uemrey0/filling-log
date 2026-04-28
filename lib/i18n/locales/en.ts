@@ -6,6 +6,7 @@ export const en: Translations = {
     tasks: 'Tasks',
     personnel: 'Personnel',
     analytics: 'Analytics',
+    leaderboard: 'Ranking',
     settings: 'Settings',
   },
   dashboard: {

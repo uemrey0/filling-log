@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { db, withTransaction } from '@/lib/db'
-import { tasks, taskSessions, personnel } from '@/lib/db/schema'
+import { tasks, taskSessions, personnel, personnelRatings } from '@/lib/db/schema'
 import {
   calcExpectedMinutes,
   calcTaskProjectedExpectedMinutes,
@@ -9,7 +9,7 @@ import {
   roundToOne,
   todayDate,
 } from '@/lib/business'
-import { eq, and, isNull, inArray } from 'drizzle-orm'
+import { eq, and, isNull, inArray, isNotNull } from 'drizzle-orm'
 import { DEPARTMENT_KEYS, type DepartmentKey } from '@/lib/departments'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -84,7 +84,20 @@ export async function GET(
       }
     })
 
-    return Response.json({ ...task, sessions: enrichedSessions })
+    const ratings = await db
+      .select({
+        personnelId: personnelRatings.personnelId,
+        personnelName: personnel.fullName,
+        workEthicScore: personnelRatings.workEthicScore,
+        qualityScore: personnelRatings.qualityScore,
+        teamworkScore: personnelRatings.teamworkScore,
+        comment: personnelRatings.comment,
+      })
+      .from(personnelRatings)
+      .innerJoin(personnel, eq(personnelRatings.personnelId, personnel.id))
+      .where(and(eq(personnelRatings.taskId, id), isNotNull(personnelRatings.taskId)))
+
+    return Response.json({ ...task, sessions: enrichedSessions, ratings })
   } catch {
     return Response.json({ error: 'Failed to fetch task' }, { status: 500 })
   }

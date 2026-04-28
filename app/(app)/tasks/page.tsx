@@ -10,6 +10,7 @@ import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { TaskSummaryCard, TaskSummaryCardSkeleton } from '@/components/ui/TaskSummaryCard'
 import { getDepartmentLabel } from '@/lib/departments'
+import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { formatTime, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
@@ -215,6 +216,14 @@ export default function TasksPage() {
 
   const taskGroups = groupByTask(allSessions)
   const hasMore = allSessions.length < total
+
+  // Day summary stats computed from loaded task groups
+  const activeCount = taskGroups.filter((g) => g.isActive).length
+  const completedWithDiff = taskGroups.filter((g) => !g.isActive && g.avgPerformanceDiff !== null)
+  const dayAvgDiff = completedWithDiff.length > 0
+    ? completedWithDiff.reduce((sum, g) => sum + g.avgPerformanceDiff!, 0) / completedWithDiff.length
+    : null
+  const personnelCount = new Set(taskGroups.flatMap((g) => g.personnel.map((p) => p.personnelName))).size
   const canGoNext = selectedDate < today
   const dateLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(lang === 'nl' ? 'nl-NL' : 'en-GB', {
     weekday: 'long',
@@ -297,6 +306,55 @@ export default function TasksPage() {
         </Card>
       ) : (
         <>
+          {/* Day summary mini-analytics */}
+          {taskGroups.length > 0 && (
+            <Card padding="sm">
+              <div className="flex items-center">
+                <div className="flex-1 text-center px-2">
+                  <div className="text-xl font-black text-gray-900">{taskGroups.length}</div>
+                  <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                    {lang === 'nl' ? 'Taken' : 'Tasks'}
+                  </div>
+                </div>
+
+                <div className="w-px h-8 bg-gray-200" />
+
+                <div className="flex-1 text-center px-2">
+                  <div className="text-xl font-black text-gray-900">{personnelCount}</div>
+                  <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                    {lang === 'nl' ? 'Medewerkers' : 'Workers'}
+                  </div>
+                </div>
+
+                {activeCount > 0 && (
+                  <>
+                    <div className="w-px h-8 bg-gray-200" />
+                    <div className="flex-1 text-center px-2">
+                      <div className="text-xl font-black" style={{ color: '#80BC17' }}>{activeCount}</div>
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
+                        {lang === 'nl' ? 'Actief' : 'Active'}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {dayAvgDiff !== null && (
+                  <>
+                    <div className="w-px h-8 bg-gray-200" />
+                    <div className="flex-1 text-center px-2">
+                      <div className="flex justify-center">
+                        <PerformanceDiff diffMinutes={dayAvgDiff} />
+                      </div>
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-1">
+                        {lang === 'nl' ? 'Gem. diff' : 'Avg. diff'}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </Card>
+          )}
+
           <div className="space-y-2">
             {taskGroups.map((group) => {
               const perfColor =

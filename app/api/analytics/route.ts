@@ -148,6 +148,8 @@ export async function GET(request: NextRequest) {
       expectedSum: number
       actualSum: number
       diffSum: number
+      actualPerColliSum: number
+      actualPerColliCount: number
     }>()
     const byDepartmentMap = new Map<string, {
       department: string
@@ -214,6 +216,8 @@ export async function GET(request: NextRequest) {
             expectedSum: 0,
             actualSum: 0,
             diffSum: 0,
+            actualPerColliSum: 0,
+            actualPerColliCount: 0,
           })
         }
         const personnelEntry = byPersonnelMap.get(row.personnelId)!
@@ -221,6 +225,10 @@ export async function GET(request: NextRequest) {
         personnelEntry.expectedSum += expectedSessionMinutes
         personnelEntry.actualSum += actualMinutes
         personnelEntry.diffSum += diffMinutes
+        if (row.colliCount > 0) {
+          personnelEntry.actualPerColliSum += actualMinutes / row.colliCount
+          personnelEntry.actualPerColliCount++
+        }
 
         if (!byDepartmentMap.has(row.department)) {
           byDepartmentMap.set(row.department, {
@@ -261,8 +269,11 @@ export async function GET(request: NextRequest) {
         avgExpected: averageRounded(entry.expectedSum, entry.sessionCount),
         avgActual: averageRounded(entry.actualSum, entry.sessionCount),
         avgDiff: averageRounded(entry.diffSum, entry.sessionCount),
+        avgActualPerColli: entry.actualPerColliCount > 0
+          ? Math.round((entry.actualPerColliSum / entry.actualPerColliCount) * 100) / 100
+          : null,
       }))
-      .sort((a, b) => (a.avgDiff ?? 0) - (b.avgDiff ?? 0))
+      .sort((a, b) => (a.avgActualPerColli ?? Infinity) - (b.avgActualPerColli ?? Infinity))
 
     const byDepartment = Array.from(byDepartmentMap.values())
       .map((entry) => ({

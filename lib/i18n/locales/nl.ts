@@ -4,6 +4,7 @@ export const nl = {
     tasks: 'Taken',
     personnel: 'Personeel',
     analytics: 'Analyses',
+    leaderboard: 'Ranglijst',
     settings: 'Instellingen',
   },
   dashboard: {
