@@ -9,7 +9,7 @@ import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { getDepartmentLabel, DEPARTMENT_KEYS } from '@/lib/departments'
-import { formatDuration, formatDurationWithSeconds } from '@/lib/business'
+import { formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
 interface OverviewStats {
@@ -27,16 +27,6 @@ interface DepartmentStat {
   avgDiff: number | null
 }
 
-interface PersonnelStat {
-  personnelId: string
-  personnelName: string
-  sessionCount: number
-  avgExpected: number | null
-  avgActual: number | null
-  avgDiff: number | null
-  avgActualPerColli: number | null
-}
-
 interface AnalyticsData {
   overview: OverviewStats
   byDepartment: DepartmentStat[]
@@ -51,16 +41,6 @@ function getDefaultDateRange() {
   return { today, thirtyDaysAgo }
 }
 
-function initials(name: string) {
-  return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-}
-
-const RANK_STYLES = [
-  { bg: '#FFFBEB', color: '#92400E', badge: '#FCD34D' },
-  { bg: '#F8FAFC', color: '#475569', badge: '#CBD5E1' },
-  { bg: '#FFF7ED', color: '#9A3412', badge: '#FDBA74' },
-]
-
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage()
   const [data, setData] = useState<AnalyticsData | null>(null)
@@ -74,13 +54,7 @@ export default function AnalyticsPage() {
     dateTo: today,
     department: '',
   })
-
   const [applied, setApplied] = useState(filters)
-
-  const [selectedDept, setSelectedDept] = useState<string | null>(null)
-  const [selectedDeptLabel, setSelectedDeptLabel] = useState('')
-  const [deptPersonnel, setDeptPersonnel] = useState<PersonnelStat[]>([])
-  const [deptLoading, setDeptLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -100,34 +74,6 @@ export default function AnalyticsPage() {
     void load()
     return () => { cancelled = true }
   }, [applied])
-
-  useEffect(() => {
-    if (!selectedDept) return
-    let cancelled = false
-    const load = async () => {
-      setDeptLoading(true)
-      setDeptPersonnel([])
-      try {
-        const params = new URLSearchParams()
-        if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
-        if (applied.dateTo) params.set('dateTo', applied.dateTo)
-        params.set('department', selectedDept)
-        const res = await apiFetch(`/api/analytics?${params}`)
-        if (!cancelled && res.ok) {
-          const json = await res.json()
-          const sorted = (json.byPersonnel ?? []).sort(
-            (a: PersonnelStat, b: PersonnelStat) =>
-              (a.avgActualPerColli ?? Infinity) - (b.avgActualPerColli ?? Infinity),
-          )
-          setDeptPersonnel(sorted)
-        }
-      } finally {
-        if (!cancelled) setDeptLoading(false)
-      }
-    }
-    void load()
-    return () => { cancelled = true }
-  }, [selectedDept, applied])
 
   const handleApply = () => {
     setApplied({ ...filters })
@@ -254,29 +200,16 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* By department — clickable for personnel ranking */}
+          {/* By department */}
           {data.byDepartment.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-                  {t('analytics.byDepartment')}
-                </h2>
-                <span className="text-[10px] text-gray-400 font-medium">
-                  {lang === 'nl' ? 'Tik voor personeelsranking' : 'Tap to see staff ranking'}
-                </span>
-              </div>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
+                {t('analytics.byDepartment')}
+              </h2>
               <Card padding="none">
                 <div className="divide-y divide-gray-100">
                   {data.byDepartment.map((row) => (
-                    <button
-                      key={row.department}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDept(row.department)
-                        setSelectedDeptLabel(getDepartmentLabel(row.department, lang))
-                      }}
-                      className="w-full flex items-center justify-between px-4 py-3 gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors text-left"
-                    >
+                    <div key={row.department} className="flex items-center justify-between px-4 py-3 gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm text-gray-900">
                           {getDepartmentLabel(row.department, lang)}
@@ -286,13 +219,8 @@ export default function AnalyticsPage() {
                           {row.avgActual !== null && ` · ${formatDuration(Number(row.avgActual))}`}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
-                        <svg className="w-4 h-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    </button>
+                      <PerformanceDiff diffMinutes={Number(row.avgDiff)} />
+                    </div>
                   ))}
                 </div>
               </Card>
@@ -300,96 +228,6 @@ export default function AnalyticsPage() {
           )}
         </>
       )}
-
-      {/* Department personnel ranking modal */}
-      <ModalOrSheet open={!!selectedDept} onClose={() => setSelectedDept(null)}>
-        <div className="space-y-4">
-          <div>
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">
-              {t('analytics.byDepartment')}
-            </div>
-            <h2 className="text-xl font-black text-gray-900">{selectedDeptLabel}</h2>
-            </div>
-
-          {deptLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
-                  <Skeleton className="h-8 w-8 rounded-full flex-shrink-0" />
-                  <Skeleton className="h-9 w-9 rounded-full flex-shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                  <Skeleton className="h-6 w-14 rounded-full" />
-                </div>
-              ))}
-            </div>
-          ) : deptPersonnel.length === 0 ? (
-            <div className="text-center py-10 text-sm text-gray-500">{t('analytics.noData')}</div>
-          ) : (
-            <div className="space-y-2">
-              {deptPersonnel.map((p, idx) => {
-                const rank = idx + 1
-                const style = idx < 3 ? RANK_STYLES[idx] : null
-                return (
-                  <div
-                    key={p.personnelId}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl border"
-                    style={
-                      style
-                        ? { backgroundColor: style.bg, borderColor: style.badge }
-                        : { backgroundColor: '#F9FAFB', borderColor: '#F3F4F6' }
-                    }
-                  >
-                    {/* Rank badge */}
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0"
-                      style={
-                        style
-                          ? { backgroundColor: style.badge, color: style.color }
-                          : { backgroundColor: '#E5E7EB', color: '#6B7280' }
-                      }
-                    >
-                      {rank}
-                    </div>
-
-                    {/* Avatar */}
-                    <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                      style={
-                        style
-                          ? { backgroundColor: style.badge + '60', color: style.color }
-                          : { backgroundColor: '#E5E7EB', color: '#6B7280' }
-                      }
-                    >
-                      {initials(p.personnelName)}
-                    </div>
-
-                    {/* Name + session count */}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-gray-900 truncate">{p.personnelName}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {p.sessionCount} {lang === 'nl' ? 'sessies' : 'sessions'}
-                      </div>
-                    </div>
-
-                    {/* Avg time per colli */}
-                    {p.avgActualPerColli !== null && (
-                      <div className="text-right flex-shrink-0">
-                        <span className="text-sm font-bold text-gray-900 tabular-nums">
-                          {formatDurationWithSeconds(p.avgActualPerColli)}
-                        </span>
-                        <div className="text-[10px] text-gray-400 font-medium">/ colli</div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </ModalOrSheet>
 
       {/* Filter sheet */}
       <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>

@@ -9,6 +9,7 @@ import {
   timestamp,
   date,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -104,6 +105,45 @@ export const personnelRatings = pgTable(
   (table) => [index('ratings_personnel_idx').on(table.personnelId)],
 )
 
+export const personnelDailyStats = pgTable(
+  'personnel_daily_stats',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    personnelId: uuid('personnel_id').notNull().references(() => personnel.id, { onDelete: 'cascade' }),
+    workDate: date('work_date').notNull(),
+    sessionCount: integer('session_count').notNull().default(0),
+    actualMinutesSum: real('actual_minutes_sum').notNull().default(0),
+    expectedMinutesSum: real('expected_minutes_sum').notNull().default(0),
+    diffMinutesSum: real('diff_minutes_sum').notNull().default(0),
+    actualPerColliSum: real('actual_per_colli_sum').notNull().default(0),
+    actualPerColliCount: integer('actual_per_colli_count').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('personnel_daily_stats_unique').on(table.personnelId, table.workDate),
+    index('personnel_daily_stats_date_idx').on(table.workDate),
+  ],
+)
+
+export const departmentDailyStats = pgTable(
+  'department_daily_stats',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workDate: date('work_date').notNull(),
+    department: varchar('department', { length: 50 }).notNull(),
+    sessionCount: integer('session_count').notNull().default(0),
+    actualMinutesSum: real('actual_minutes_sum').notNull().default(0),
+    expectedMinutesSum: real('expected_minutes_sum').notNull().default(0),
+    diffMinutesSum: real('diff_minutes_sum').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('department_daily_stats_unique').on(table.workDate, table.department),
+    index('department_daily_stats_date_idx').on(table.workDate),
+    index('department_daily_stats_dept_idx').on(table.department),
+  ],
+)
+
 export const personnelRelations = relations(personnel, ({ many }) => ({
   sessions: many(taskSessions),
   comments: many(personnelComments),
@@ -141,3 +181,5 @@ export type PersonnelComment = typeof personnelComments.$inferSelect
 export type NewPersonnelComment = typeof personnelComments.$inferInsert
 export type PersonnelRating = typeof personnelRatings.$inferSelect
 export type NewPersonnelRating = typeof personnelRatings.$inferInsert
+export type PersonnelDailyStat = typeof personnelDailyStats.$inferSelect
+export type DepartmentDailyStat = typeof departmentDailyStats.$inferSelect

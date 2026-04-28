@@ -93,6 +93,12 @@ interface ApiErrorPayload {
   code?: string
 }
 
+interface AnalyticsOverviewPayload {
+  overview?: {
+    avgDiffMinutes?: number | null
+  }
+}
+
 async function parseApiErrorPayload(response: Response): Promise<ApiErrorPayload> {
   return response.json().catch(() => ({})) as Promise<ApiErrorPayload>
 }
@@ -384,11 +390,19 @@ function getTodayLocalDate(): string {
   return localTime.toISOString().slice(0, 10)
 }
 
+const PAGE_SIZE = 10
+
 export default function DashboardPage() {
   const { t, lang } = useLanguage()
-  const [sessions, setSessions] = useState<SessionRow[]>([])
+  const [activeSessions, setActiveSessions] = useState<SessionRow[]>([])
+  const [completedSessions, setCompletedSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [completedPage, setCompletedPage] = useState(1)
+  const [completedTotal, setCompletedTotal] = useState(0)
+  const [totalActive, setTotalActive] = useState(0)
+  const [avgDiff, setAvgDiff] = useState<number | null>(null)
   const [statusNowTs, setStatusNowTs] = useState(() => Date.now())
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [actionId, setActionId] = useState<string | null>(null)
@@ -406,20 +420,58 @@ export default function DashboardPage() {
   const load = useCallback(async ({ showToastOnError = false }: { showToastOnError?: boolean } = {}) => {
     try {
       const today = getTodayLocalDate()
-      const res = await apiFetch(`/api/tasks?today=true&todayDate=${today}`)
-      if (res.ok) {
-        const data = await res.json()
-        setSessions(data.sessions ?? data)
+      const activeParams = new URLSearchParams()
+      activeParams.set('today', 'true')
+      activeParams.set('todayDate', today)
+      activeParams.set('active', 'true')
+      activeParams.set('paginate', 'false')
+
+      const completedParams = new URLSearchParams()
+      completedParams.set('today', 'true')
+      completedParams.set('todayDate', today)
+      completedParams.set('completed', 'true')
+      completedParams.set('page', '1')
+      completedParams.set('pageSize', String(PAGE_SIZE))
+
+      const analyticsParams = new URLSearchParams()
+      analyticsParams.set('dateFrom', today)
+      analyticsParams.set('dateTo', today)
+
+      const [activeRes, completedRes, analyticsRes] = await Promise.all([
+        apiFetch(`/api/tasks?${activeParams}`),
+        apiFetch(`/api/tasks?${completedParams}`),
+        apiFetch(`/api/analytics?${analyticsParams}`),
+      ])
+
+      if (activeRes.ok && completedRes.ok) {
+        const [activeData, completedData, analyticsData] = await Promise.all([
+          activeRes.json(),
+          completedRes.json(),
+          analyticsRes.ok
+            ? analyticsRes.json() as Promise<AnalyticsOverviewPayload>
+            : Promise.resolve(null),
+        ])
+        setActiveSessions(activeData.sessions ?? [])
+        setCompletedSessions(completedData.sessions ?? [])
+        setTotalActive(Number(activeData.totalActive ?? activeData.total ?? 0))
+        setCompletedTotal(Number(completedData.total ?? 0))
+        setCompletedPage(Number(completedData.page ?? 1))
+        setAvgDiff(
+          analyticsData?.overview?.avgDiffMinutes !== undefined && analyticsData?.overview?.avgDiffMinutes !== null
+            ? Number(analyticsData.overview.avgDiffMinutes)
+            : null,
+        )
         setLastUpdatedAt(new Date())
         return true
-      } else {
-        const payload = await parseApiErrorPayload(res)
-        if (showToastOnError) {
-          const fallback = lang === 'nl' ? 'Taken laden mislukt.' : 'Failed to load tasks.'
-          toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
-        }
-        return false
       }
+
+      const failedRes = activeRes.ok ? completedRes : activeRes
+      const payload = await parseApiErrorPayload(failedRes)
+      if (showToastOnError) {
+        const fallback = lang === 'nl' ? 'Taken laden mislukt.' : 'Failed to load tasks.'
+        toast.error(getDashboardErrorMessage(lang, payload.code, payload.error ?? fallback))
+      }
+      return false
     } catch (err) {
       if (showToastOnError) {
         const fallback = lang === 'nl' ? 'Taken laden mislukt.' : 'Failed to load tasks.'
@@ -430,6 +482,28 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }, [lang])
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const today = getTodayLocalDate()
+      const params = new URLSearchParams()
+      params.set('today', 'true')
+      params.set('todayDate', today)
+      params.set('completed', 'true')
+      params.set('page', String(completedPage + 1))
+      params.set('pageSize', String(PAGE_SIZE))
+      const res = await apiFetch(`/api/tasks?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        setCompletedSessions((prev) => [...prev, ...(data.sessions ?? [])])
+        setCompletedPage(Number(data.page ?? completedPage + 1))
+      }
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [completedPage, loadingMore])
 
   useEffect(() => {
     void load({ showToastOnError: true })
@@ -580,16 +654,10 @@ export default function DashboardPage() {
     }
   }
 
-  const taskGroups = groupByTask(sessions)
-  const active = taskGroups.filter((g) => g.isActive)
-  const completed = taskGroups.filter((g) => !g.isActive)
-
-  const allCompletedDiffs = completed
-    .flatMap((g) => g.personnel.filter((p) => p.performanceDiff !== null).map((p) => p.performanceDiff!))
-
-  const avgDiff = allCompletedDiffs.length > 0
-    ? allCompletedDiffs.reduce((a, b) => a + b, 0) / allCompletedDiffs.length
-    : null
+  const active = groupByTask(activeSessions)
+  const completed = groupByTask(completedSessions)
+  const hasAnyTasks = active.length > 0 || completed.length > 0
+  const hasMoreCompleted = completed.length < completedTotal
 
   const todayLabel = new Date().toLocaleDateString(lang === 'nl' ? 'nl-NL' : 'en-GB', {
     weekday: 'long',
@@ -665,7 +733,7 @@ export default function DashboardPage() {
             </Card>
           ))}
         </div>
-      ) : taskGroups.length > 0 && (
+      ) : hasAnyTasks && (
         <div className="grid grid-cols-3 gap-3">
           <Card padding="sm" className="text-center">
             <div className="mx-auto mb-2 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
@@ -673,7 +741,7 @@ export default function DashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <div className="text-2xl font-bold text-black leading-none">{completed.length}</div>
+            <div className="text-2xl font-bold text-black leading-none">{completedTotal}</div>
             <div className="text-[11px] text-gray-500 mt-1 leading-tight">{t('dashboard.tasksCompleted')}</div>
           </Card>
 
@@ -683,7 +751,7 @@ export default function DashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <div className="text-2xl font-bold leading-none" style={{ color: '#80BC17' }}>{active.length}</div>
+            <div className="text-2xl font-bold leading-none" style={{ color: '#80BC17' }}>{totalActive}</div>
             <div className="text-[11px] text-gray-500 mt-1 leading-tight">{t('dashboard.activeTasks')}</div>
           </Card>
 
@@ -904,7 +972,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Completed tasks */}
-      {(loading || completed.length > 0) && (
+      {(loading || completed.length > 0 || hasMoreCompleted) && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
@@ -912,7 +980,7 @@ export default function DashboardPage() {
             </h2>
             {!loading && (
               <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 text-[10px] font-bold text-gray-600">
-                {completed.length}
+                {completedTotal}
               </span>
             )}
           </div>
@@ -963,10 +1031,17 @@ export default function DashboardPage() {
             })}
             </div>
           )}
+          {hasMoreCompleted && !loading && (
+            <div className="flex justify-center pt-2">
+              <Button variant="secondary" size="sm" loading={loadingMore} onClick={loadMore}>
+                {lang === 'nl' ? 'Meer laden' : 'Load more'} ({completedTotal - completed.length})
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
-      {!loading && taskGroups.length === 0 && (
+      {!loading && !hasAnyTasks && (
         <Card>
           <EmptyState
             title={t('dashboard.noCompletedTasks')}

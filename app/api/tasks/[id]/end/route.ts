@@ -2,14 +2,18 @@ import { NextRequest } from 'next/server'
 import { withTransaction } from '@/lib/db'
 import { taskSessions, tasks } from '@/lib/db/schema'
 import { calcExpectedMinutes, todayDate } from '@/lib/business'
+import { refreshPersonnelDailyStats, refreshDepartmentDailyStats } from '@/lib/analytics-refresh'
 import { eq, isNull, and } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from '@/lib/db/schema'
 import type { ClientBase } from 'pg'
 import type { NodePgClient } from 'drizzle-orm/node-postgres'
 
+type EndedSession = { personnelId: string; workDate: string; department: string }
+type RefreshKey = { personnelId: string; workDate: string }
+
 type EndResult =
-  | { kind: 'ok'; ended: number; continuationTaskId: string | null }
+  | { kind: 'ok'; ended: number; continuationTaskId: string | null; endedSessions: EndedSession[] }
   | { kind: 'not_found' }
   | { kind: 'already_ended' }
   | { kind: 'invalid_remaining' }
@@ -189,7 +193,13 @@ export async function POST(
         }
       }
 
-      return { kind: 'ok', ended: endedCount, continuationTaskId }
+      const endedSessions: EndedSession[] = endingActiveSessions.map((s) => ({
+        personnelId: s.personnelId,
+        workDate: String(s.workDate).slice(0, 10),
+        department: task.department,
+      }))
+
+      return { kind: 'ok', ended: endedCount, continuationTaskId, endedSessions }
     })
 
     if (result.kind === 'not_found') {
@@ -207,6 +217,11 @@ export async function POST(
     if (result.kind === 'invalid_continuation') {
       return Response.json({ error: 'Invalid continuation setup', code: 'INVALID_INPUT' }, { status: 400 })
     }
+
+    const personnelKeys: RefreshKey[] = result.endedSessions.map((s) => ({ personnelId: s.personnelId, workDate: s.workDate }))
+    const deptKeys = result.endedSessions.map((s) => ({ workDate: s.workDate, department: s.department }))
+    void refreshPersonnelDailyStats(personnelKeys).catch(console.error)
+    void refreshDepartmentDailyStats(deptKeys).catch(console.error)
 
     return Response.json({ ended: result.ended, continuationTaskId: result.continuationTaskId })
   } catch {

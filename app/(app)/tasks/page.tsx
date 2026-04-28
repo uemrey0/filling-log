@@ -14,7 +14,7 @@ import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { formatTime, formatDuration, calcExpectedMinutesFromSessionStarts } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
 
 interface SessionRow {
   sessionId: string
@@ -63,6 +63,12 @@ interface TaskGroup {
   personnel: PersonnelEntry[]
   avgPerformanceDiff: number | null
   avgActualMinutes: number | null
+}
+
+interface AnalyticsDayPayload {
+  overview?: {
+    avgDiffMinutes?: number | null
+  }
 }
 
 function getTodayLocalDate(): string {
@@ -168,6 +174,9 @@ export default function TasksPage() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [totalActive, setTotalActive] = useState(0)
+  const [personnelCount, setPersonnelCount] = useState(0)
+  const [dayAvgDiff, setDayAvgDiff] = useState<number | null>(null)
   const [showDiscountInfo, setShowDiscountInfo] = useState(false)
 
   const applySelectedDate = (nextDate: string) => {
@@ -192,6 +201,8 @@ export default function TasksPage() {
         const data = await res.json()
         const sessions: SessionRow[] = data.sessions ?? []
         setTotal(data.total ?? sessions.length)
+        setTotalActive(Number(data.totalActive ?? 0))
+        setPersonnelCount(Number(data.totalPersonnel ?? 0))
         setPage(data.page ?? p)
         if (replace) {
           setAllSessions(sessions)
@@ -209,6 +220,23 @@ export default function TasksPage() {
     load(1, true)
   }, [load])
 
+  useEffect(() => {
+    let cancelled = false
+    setDayAvgDiff(null)
+    void apiFetch(`/api/analytics?dateFrom=${selectedDate}&dateTo=${selectedDate}`)
+      .then((r) => (r.ok ? r.json() as Promise<AnalyticsDayPayload> : null))
+      .then((d) => {
+        if (cancelled || !d) return
+        setDayAvgDiff(
+          d.overview?.avgDiffMinutes !== undefined && d.overview?.avgDiffMinutes !== null
+            ? Number(d.overview.avgDiffMinutes)
+            : null,
+        )
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [selectedDate])
+
   const loadMore = () => {
     setLoadingMore(true)
     load(page + 1, false)
@@ -217,13 +245,6 @@ export default function TasksPage() {
   const taskGroups = groupByTask(allSessions)
   const hasMore = allSessions.length < total
 
-  // Day summary stats computed from loaded task groups
-  const activeCount = taskGroups.filter((g) => g.isActive).length
-  const completedWithDiff = taskGroups.filter((g) => !g.isActive && g.avgPerformanceDiff !== null)
-  const dayAvgDiff = completedWithDiff.length > 0
-    ? completedWithDiff.reduce((sum, g) => sum + g.avgPerformanceDiff!, 0) / completedWithDiff.length
-    : null
-  const personnelCount = new Set(taskGroups.flatMap((g) => g.personnel.map((p) => p.personnelName))).size
   const canGoNext = selectedDate < today
   const dateLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(lang === 'nl' ? 'nl-NL' : 'en-GB', {
     weekday: 'long',
@@ -311,7 +332,7 @@ export default function TasksPage() {
             <Card padding="sm">
               <div className="flex items-center">
                 <div className="flex-1 text-center px-2">
-                  <div className="text-xl font-black text-gray-900">{taskGroups.length}</div>
+                  <div className="text-xl font-black text-gray-900">{total}</div>
                   <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
                     {lang === 'nl' ? 'Taken' : 'Tasks'}
                   </div>
@@ -326,11 +347,11 @@ export default function TasksPage() {
                   </div>
                 </div>
 
-                {activeCount > 0 && (
+                {totalActive > 0 && (
                   <>
                     <div className="w-px h-8 bg-gray-200" />
                     <div className="flex-1 text-center px-2">
-                      <div className="text-xl font-black" style={{ color: '#80BC17' }}>{activeCount}</div>
+                      <div className="text-xl font-black" style={{ color: '#80BC17' }}>{totalActive}</div>
                       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">
                         {lang === 'nl' ? 'Actief' : 'Active'}
                       </div>

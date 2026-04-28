@@ -46,18 +46,21 @@ function initials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
-function StarDisplay({ value }: { value: number }) {
-  const rounded = Math.round(value * 2) / 2
+function RatingValue({
+  label,
+  value,
+}: {
+  label: string
+  value: number
+}) {
   return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((n) => {
-        const filled = n <= rounded
-        return (
-          <svg key={n} className="w-3.5 h-3.5" fill={filled ? '#80BC17' : 'none'} stroke={filled ? '#80BC17' : '#D1D5DB'} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-          </svg>
-        )
-      })}
+    <div className="min-w-0">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-bold text-gray-900 tabular-nums">
+        {value.toFixed(1)}
+      </div>
     </div>
   )
 }
@@ -154,6 +157,7 @@ export default function TaskDetailPage() {
   const departmentLabel = data ? getDepartmentLabel(data.department, lang) : ''
   const workDateSource = data?.sessions[0]?.workDate ?? data?.createdAt ?? null
   const workDateLabel = workDateSource ? formatDate(workDateSource) : ''
+  const ratingsByPersonnelId = new Map((data?.ratings ?? []).map((rating) => [rating.personnelId, rating]))
 
   return (
     <div className="space-y-4">
@@ -360,50 +364,7 @@ export default function TaskDetailPage() {
             </Card>
           )}
 
-          {/* Card 4 — Ratings (if any) */}
-          {data.ratings && data.ratings.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-                  {t('ratings.title')}
-                </h2>
-                <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-gray-100 text-[10px] font-bold text-gray-600 tabular-nums">
-                  {data.ratings.length}
-                </span>
-              </div>
-              <Card padding="none">
-                <div className="divide-y divide-gray-100">
-                  {data.ratings.map((r) => {
-                    const avg = (r.workEthicScore + r.qualityScore + r.teamworkScore) / 3
-                    return (
-                      <Link
-                        key={r.personnelId}
-                        href={`/personnel/${r.personnelId}`}
-                        className="flex items-start gap-3 px-4 py-3.5 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                      >
-                        {/* Avatar */}
-                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 bg-gray-100 text-gray-600 mt-0.5">
-                          {initials(r.personnelName)}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-gray-900 truncate mb-1">{r.personnelName}</div>
-                          <StarDisplay value={avg} />
-                          {r.comment && (
-                            <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{r.comment}</p>
-                          )}
-                        </div>
-                        <svg className="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </Link>
-                    )
-                  })}
-                </div>
-              </Card>
-            </div>
-          )}
-
-          {/* Card 5 — Team */}
+          {/* Card 4 — Team */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
@@ -419,63 +380,87 @@ export default function TaskDetailPage() {
               <div className="divide-y divide-gray-100">
                 {sessions.map((s) => {
                   const sessionActive = !s.endedAt
+                  const rating = ratingsByPersonnelId.get(s.personnelId)
+                  const overallScore = rating
+                    ? (rating.workEthicScore + rating.qualityScore + rating.teamworkScore) / 3
+                    : null
                   return (
                     <Link
                       key={s.id}
                       href={`/personnel/${s.personnelId}`}
-                      className="flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                      className="group block rounded-2xl px-4 py-3.5 transition-colors duration-150 ring-1 ring-transparent hover:bg-gray-50 hover:ring-gray-200 active:bg-gray-100"
                     >
-                      {/* Avatar */}
-                      <span
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 relative"
-                        style={{
-                          backgroundColor: sessionActive ? '#80BC1725' : '#F3F4F6',
-                          color: sessionActive ? '#1C7745' : '#6B7280',
-                        }}
-                      >
-                        {initials(s.personnelName)}
-                        {sessionActive && (
-                          <span
-                            className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white animate-pulse"
-                            style={{ backgroundColor: '#80BC17' }}
-                          />
-                        )}
-                      </span>
-
-                      {/* Name + time */}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm text-gray-900 truncate">{s.personnelName}</div>
-                        <div className="text-xs text-gray-500 tabular-nums mt-0.5">
-                          {sessionActive ? (
-                            <>
-                              <span className="text-[#1C7745] font-medium">{t('tasks.busy')}</span>
-                              <span className="text-gray-300 mx-1.5">·</span>
-                              <span>{formatTime(s.startedAt)}</span>
-                            </>
-                          ) : (
-                            <span>{formatTime(s.startedAt)} – {s.endedAt ? formatTime(s.endedAt) : '—'}</span>
+                      <div className="flex items-start gap-3">
+                        {/* Avatar */}
+                        <span
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 relative mt-0.5"
+                          style={{
+                            backgroundColor: sessionActive ? '#80BC1725' : '#F3F4F6',
+                            color: sessionActive ? '#1C7745' : '#6B7280',
+                          }}
+                        >
+                          {initials(s.personnelName)}
+                          {sessionActive && (
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white animate-pulse"
+                              style={{ backgroundColor: '#80BC17' }}
+                            />
                           )}
+                        </span>
+
+                        {/* Name + time */}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm text-gray-900 truncate">{s.personnelName}</div>
+                          <div className="text-xs text-gray-500 tabular-nums mt-0.5">
+                            {sessionActive ? (
+                              <>
+                                <span className="text-[#1C7745] font-medium">{t('tasks.busy')}</span>
+                                <span className="text-gray-300 mx-1.5">·</span>
+                                <span>{formatTime(s.startedAt)}</span>
+                              </>
+                            ) : (
+                              <span>{formatTime(s.startedAt)} – {s.endedAt ? formatTime(s.endedAt) : '—'}</span>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Metrics */}
+                        {!sessionActive && (
+                          <div className="flex-shrink-0 flex flex-col items-end gap-1 pt-0.5">
+                            {s.actualMinutes !== null && (
+                              <span className="text-sm font-bold text-gray-800 tabular-nums">
+                                {formatDuration(Number(s.actualMinutes))}
+                              </span>
+                            )}
+                            {s.performanceDiff !== null && (
+                              <PerformanceDiff diffMinutes={Number(s.performanceDiff)} />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Chevron — indicates profile navigation */}
+                        <svg className="w-4 h-4 text-gray-300 flex-shrink-0 ml-1 mt-1 transition-colors group-hover:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
                       </div>
 
-                      {/* Metrics */}
-                      {!sessionActive && (
-                        <div className="flex-shrink-0 flex flex-col items-end gap-1">
-                          {s.actualMinutes !== null && (
-                            <span className="text-sm font-bold text-gray-800 tabular-nums">
-                              {formatDuration(Number(s.actualMinutes))}
-                            </span>
-                          )}
-                          {s.performanceDiff !== null && (
-                            <PerformanceDiff diffMinutes={Number(s.performanceDiff)} />
+                      {rating && overallScore !== null && (
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <div className="grid grid-cols-4 gap-3 sm:gap-4">
+                            <RatingValue label={t('ratings.workEthicLabel')} value={rating.workEthicScore} />
+                            <RatingValue label={t('ratings.qualityLabel')} value={rating.qualityScore} />
+                            <RatingValue label={t('ratings.teamworkLabel')} value={rating.teamworkScore} />
+                            <RatingValue label={t('ratings.overallScore')} value={overallScore} />
+                          </div>
+                          {rating.comment && (
+                            <div className="mt-3">
+                              <p className="text-xs leading-5 text-gray-600 whitespace-pre-wrap break-words">
+                                {rating.comment}
+                              </p>
+                            </div>
                           )}
                         </div>
                       )}
-
-                      {/* Chevron — indicates profile navigation */}
-                      <svg className="w-4 h-4 text-gray-300 flex-shrink-0 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
                     </Link>
                   )
                 })}

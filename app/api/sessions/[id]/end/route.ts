@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
-import { taskSessions } from '@/lib/db/schema'
+import { taskSessions, tasks } from '@/lib/db/schema'
+import { refreshPersonnelDailyStats, refreshDepartmentDailyStats } from '@/lib/analytics-refresh'
 import { eq, isNull, and } from 'drizzle-orm'
 
 export async function POST(
@@ -20,6 +21,13 @@ export async function POST(
 
     if (!updated) {
       return Response.json({ error: 'Session not found or already ended' }, { status: 404 })
+    }
+
+    const [task] = await db.select({ department: tasks.department }).from(tasks).where(eq(tasks.id, updated.taskId))
+    if (task) {
+      const workDate = String(updated.workDate).slice(0, 10)
+      void refreshPersonnelDailyStats([{ personnelId: updated.personnelId, workDate }]).catch(console.error)
+      void refreshDepartmentDailyStats([{ workDate, department: task.department }]).catch(console.error)
     }
 
     return Response.json(updated)

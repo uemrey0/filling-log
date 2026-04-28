@@ -10,6 +10,7 @@ import {
   todayDate,
 } from '@/lib/business'
 import { eq, and, isNull, inArray, isNotNull } from 'drizzle-orm'
+import { refreshPersonnelDailyStats, refreshDepartmentDailyStats } from '@/lib/analytics-refresh'
 import { DEPARTMENT_KEYS, type DepartmentKey } from '@/lib/departments'
 import { z } from 'zod'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -263,13 +264,29 @@ export async function DELETE(
   try {
     const { id } = await params
 
-    // task_sessions has ON DELETE CASCADE, so deleting the task removes sessions too
+    // Collect sessions before cascade delete so we can refresh stats afterward
+    const affectedSessions = await db
+      .select({
+        personnelId: taskSessions.personnelId,
+        workDate: taskSessions.workDate,
+        department: tasks.department,
+      })
+      .from(taskSessions)
+      .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+      .where(and(eq(taskSessions.taskId, id), isNotNull(taskSessions.endedAt)))
+
     const [deleted] = await db
       .delete(tasks)
       .where(eq(tasks.id, id))
       .returning()
 
     if (!deleted) return Response.json({ error: 'Task not found', code: 'TASK_NOT_FOUND' }, { status: 404 })
+
+    const personnelKeys = affectedSessions.map((s) => ({ personnelId: s.personnelId, workDate: String(s.workDate).slice(0, 10) }))
+    const deptKeys = affectedSessions.map((s) => ({ workDate: String(s.workDate).slice(0, 10), department: s.department }))
+    void refreshPersonnelDailyStats(personnelKeys).catch(console.error)
+    void refreshDepartmentDailyStats(deptKeys).catch(console.error)
+
     return Response.json({ success: true })
   } catch (err) {
     console.error('[DELETE /api/tasks/[id]]', err)

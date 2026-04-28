@@ -10,7 +10,7 @@ import {
   roundToOne,
   todayDate,
 } from '@/lib/business'
-import { eq, desc, isNull, sql, and, gte, lte, inArray } from 'drizzle-orm'
+import { eq, desc, isNull, isNotNull, sql, and, gte, lte, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from '@/lib/db/schema'
 import type { ClientBase } from 'pg'
@@ -86,8 +86,10 @@ export async function GET(request: NextRequest) {
     const personnelId = searchParams.get('personnelId')
     const department = searchParams.get('department')
     const activeOnly = searchParams.get('active') === 'true'
+    const completedOnly = searchParams.get('completed') === 'true'
     const todayOnly = searchParams.get('today') === 'true'
     const todayDateParam = searchParams.get('todayDate')
+    const paginate = searchParams.get('paginate') !== 'false'
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'))
     const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') ?? '20')))
 
@@ -105,6 +107,7 @@ export async function GET(request: NextRequest) {
     if (personnelId) baseConditions.push(eq(taskSessions.personnelId, personnelId))
     if (department) baseConditions.push(eq(tasks.department, department))
     if (activeOnly) baseConditions.push(isNull(taskSessions.endedAt))
+    if (completedOnly) baseConditions.push(isNotNull(taskSessions.endedAt))
 
     const whereClause = baseConditions.length > 0 ? and(...baseConditions) : undefined
 
@@ -127,39 +130,81 @@ export async function GET(request: NextRequest) {
     }
 
     if (todayOnly) {
+      const [countRow] = await db
+        .select({
+          total: sql<number>`COUNT(DISTINCT ${taskSessions.taskId})`,
+          totalActive: sql<number>`COUNT(DISTINCT CASE WHEN ${taskSessions.endedAt} IS NULL THEN ${taskSessions.taskId} END)`,
+          totalPersonnel: sql<number>`COUNT(DISTINCT ${taskSessions.personnelId})`,
+        })
+        .from(taskSessions)
+        .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+        .where(whereClause)
+
+      const total = Number(countRow?.total ?? 0)
+      const totalActive = Number(countRow?.totalActive ?? 0)
+      const totalPersonnel = Number(countRow?.totalPersonnel ?? 0)
+
+      const taskIdRows = await db
+        .select({ taskId: taskSessions.taskId })
+        .from(taskSessions)
+        .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
+        .where(whereClause)
+        .groupBy(taskSessions.taskId)
+        .orderBy(
+          sql`(COUNT(CASE WHEN ${taskSessions.endedAt} IS NULL THEN 1 END) > 0) DESC`,
+          sql`MAX(${taskSessions.startedAt}) DESC`,
+        )
+        .limit(paginate ? pageSize : total)
+        .offset(paginate ? (page - 1) * pageSize : 0)
+
+      const pagedTaskIds = taskIdRows.map((r) => r.taskId)
+      if (pagedTaskIds.length === 0) {
+        return Response.json({ sessions: [], total, totalActive, totalPersonnel, page, pageSize })
+      }
+
       const rows = await db
         .select(sessionSelect)
         .from(taskSessions)
         .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
         .innerJoin(personnel, eq(taskSessions.personnelId, personnel.id))
-        .where(whereClause)
+        .where(inArray(taskSessions.taskId, pagedTaskIds))
         .orderBy(desc(taskSessions.startedAt))
 
       const sessions = withProjectedMetrics(rows as SessionRow[])
-      return Response.json({ sessions, total: sessions.length, page: 1, pageSize: sessions.length })
+      return Response.json({ sessions, total, totalActive, totalPersonnel, page, pageSize })
     }
 
     // Paginate by distinct task
-    const taskIdRows = await db
+    const taskIdsQuery = db
       .select({ taskId: taskSessions.taskId, latestStart: sql<string>`MAX(${taskSessions.startedAt})` })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
       .where(whereClause)
       .groupBy(taskSessions.taskId)
       .orderBy(sql`MAX(${taskSessions.startedAt}) DESC`)
-      .limit(pageSize)
-      .offset((page - 1) * pageSize)
 
-    const [{ total }] = await db
-      .select({ total: sql<number>`COUNT(DISTINCT ${taskSessions.taskId})` })
+    const taskIdRows = paginate
+      ? await taskIdsQuery.limit(pageSize).offset((page - 1) * pageSize)
+      : await taskIdsQuery
+
+    const [countRow] = await db
+      .select({
+        total: sql<number>`COUNT(DISTINCT ${taskSessions.taskId})`,
+        totalActive: sql<number>`COUNT(DISTINCT CASE WHEN ${taskSessions.endedAt} IS NULL THEN ${taskSessions.taskId} END)`,
+        totalPersonnel: sql<number>`COUNT(DISTINCT ${taskSessions.personnelId})`,
+      })
       .from(taskSessions)
       .innerJoin(tasks, eq(taskSessions.taskId, tasks.id))
       .where(whereClause)
 
+    const total = Number(countRow?.total ?? 0)
+    const totalActive = Number(countRow?.totalActive ?? 0)
+    const totalPersonnel = Number(countRow?.totalPersonnel ?? 0)
+
     const pagedTaskIds = taskIdRows.map((r) => r.taskId)
 
     if (pagedTaskIds.length === 0) {
-      return Response.json({ sessions: [], total: Number(total), page, pageSize })
+      return Response.json({ sessions: [], total, totalActive, totalPersonnel, page, pageSize })
     }
 
     const rows = await db
@@ -171,7 +216,7 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(taskSessions.startedAt))
 
     const sessions = withProjectedMetrics(rows as SessionRow[])
-    return Response.json({ sessions, total: Number(total), page, pageSize })
+    return Response.json({ sessions, total, totalActive, totalPersonnel, page, pageSize })
   } catch (err) {
     console.error('[GET /api/tasks]', err)
     return Response.json({ error: 'Failed to fetch tasks', detail: String(err) }, { status: 500 })
