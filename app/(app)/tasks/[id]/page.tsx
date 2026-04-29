@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { BackButton } from '@/components/ui/BackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
@@ -163,15 +164,15 @@ export default function TaskDetailPage() {
     <div className="space-y-4">
       {/* Top navigation bar */}
       <div className="flex items-center justify-between gap-3">
-        <Link
-          href="/tasks"
+        <BackButton
+          fallbackHref="/tasks"
           className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0"
           aria-label={t('common.back')}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-        </Link>
+        </BackButton>
 
         <div className="flex-1 min-w-0 text-center">
           {!loading && data && (

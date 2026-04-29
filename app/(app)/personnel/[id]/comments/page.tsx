@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
-import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { BackButton } from '@/components/ui/BackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -123,15 +123,15 @@ export default function PersonnelCommentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <Link
-            href={`/personnel/${params.id}`}
+          <BackButton
+            fallbackHref={`/personnel/${params.id}`}
             className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0"
             aria-label={t('common.back')}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-          </Link>
+          </BackButton>
           <div className="min-w-0">
             <h1 className="text-lg font-bold text-gray-900 truncate">{t('personnel.allCommentsTitle')}</h1>
             {info && <div className="text-sm text-gray-500 truncate">{info.fullName}</div>}

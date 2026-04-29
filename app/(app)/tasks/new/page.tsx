@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { BackButton } from '@/components/ui/BackButton'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -16,6 +16,7 @@ import { DEPARTMENT_KEYS, getDepartmentLabel } from '@/lib/departments'
 import { calcExpectedMinutes } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
 import type { Personnel } from '@/lib/db/schema'
+import { navigateBack } from '@/lib/navigation'
 
 function getTodayLocalDate(): string {
   const now = new Date()
@@ -160,14 +161,15 @@ export default function NewTaskPage() {
     <div className="space-y-5">
       {/* Page header */}
       <div className="flex items-center gap-3">
-        <Link
-          href="/dashboard"
+        <BackButton
+          fallbackHref="/dashboard"
           className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0"
+          aria-label={t('common.back')}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-        </Link>
+        </BackButton>
         <div>
           <h1 className="text-xl font-bold text-black">{t('taskForm.title')}</h1>
           <p className="text-xs text-gray-500 mt-0.5">{lang === 'nl' ? 'Vul de gegevens in om een taak te starten' : 'Fill in the details to start a task'}</p>
@@ -287,11 +289,9 @@ export default function NewTaskPage() {
             <Button type="submit" loading={checkingConflicts || loading} fullWidth size="lg">
               {t('taskForm.startTask')}
             </Button>
-            <Link href="/dashboard" className="flex-1">
-              <Button type="button" variant="secondary" fullWidth size="lg">
-                {t('taskForm.cancel')}
-              </Button>
-            </Link>
+            <Button type="button" variant="secondary" fullWidth size="lg" onClick={() => navigateBack(router, '/dashboard')}>
+              {t('taskForm.cancel')}
+            </Button>
           </div>
         </form>
       </Card>

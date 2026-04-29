@@ -2,13 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { BackButton } from '@/components/ui/BackButton'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Card } from '@/components/ui/Card'
 import { apiFetch } from '@/lib/api'
+import { navigateBack } from '@/lib/navigation'
 
 export default function NewPersonnelPage() {
   const { t } = useLanguage()
@@ -45,11 +46,11 @@ export default function NewPersonnelPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <Link href="/personnel" className="text-gray-500 hover:text-gray-700">
+        <BackButton fallbackHref="/personnel" className="text-gray-500 hover:text-gray-700" aria-label={t('common.back')}>
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-        </Link>
+        </BackButton>
         <h1 className="text-xl font-bold text-gray-900">{t('personnel.addPersonnel')}</h1>
       </div>
 
@@ -76,9 +77,7 @@ export default function NewPersonnelPage() {
           )}
           <div className="flex gap-3">
             <Button type="submit" loading={loading} fullWidth>{t('personnel.save')}</Button>
-            <Link href="/personnel" className="flex-1">
-              <Button type="button" variant="secondary" fullWidth>{t('personnel.cancel')}</Button>
-            </Link>
+            <Button type="button" variant="secondary" fullWidth onClick={() => navigateBack(router, '/personnel')}>{t('personnel.cancel')}</Button>
           </div>
         </form>
       </Card>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/components/providers/LanguageProvider'
+import { BackButton } from '@/components/ui/BackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -304,9 +305,9 @@ export default function PersonnelDetailPage() {
       <div className="space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Link href="/personnel" className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0">
+            <BackButton fallbackHref="/personnel" className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0" aria-label={t('common.back')}>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </Link>
+            </BackButton>
             <div className="flex items-center gap-3">
               <Skeleton className="h-11 w-11 rounded-full" />
               <div className="space-y-2">
@@ -369,9 +370,9 @@ export default function PersonnelDetailPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/personnel" className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0">
+          <BackButton fallbackHref="/personnel" className="w-9 h-9 rounded-xl flex items-center justify-center bg-white border border-gray-200 text-gray-500 hover:text-black hover:border-gray-300 transition-colors flex-shrink-0" aria-label={t('common.back')}>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          </Link>
+          </BackButton>
           <div className="flex items-center gap-3">
             <span className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0" style={{ backgroundColor: '#80BC1725', color: '#1C7745' }}>
               {initials(data.fullName)}
