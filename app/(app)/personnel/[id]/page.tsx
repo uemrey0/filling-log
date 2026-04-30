@@ -510,55 +510,6 @@ export default function PersonnelDetailPage() {
         </Card>
       </div>
 
-      {/* Department breakdown — collapsible with chip preview */}
-      {deptStats.length > 0 && (
-        <div>
-          <button type="button" onClick={() => setShowDepts((v) => !v)} className="w-full text-left">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
-                {t('analytics.byDepartment')}
-              </h2>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-gray-400">{deptStats.length}</span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${showDepts ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-            {/* Always-visible chip preview */}
-            {!showDepts && (
-              <div className="flex flex-wrap gap-1.5">
-                {deptStats.slice(0, 4).map(({ department }) => (
-                  <span key={department} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                    {getDepartmentLabel(department, lang)}
-                  </span>
-                ))}
-                {deptStats.length > 4 && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
-                    +{deptStats.length - 4}
-                  </span>
-                )}
-              </div>
-            )}
-          </button>
-          {showDepts && (
-            <Card padding="none" className="mt-2">
-              <div className="divide-y divide-gray-100">
-                {deptStats.map(({ department, sessionCount, avgDiff: diff }) => (
-                  <div key={department} className="flex items-center justify-between px-4 py-3 gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900">{getDepartmentLabel(department, lang)}</div>
-                      <div className="text-xs text-gray-500">{sessionCount} {t('analytics.sessionCount')}</div>
-                    </div>
-                    <PerformanceDiff diffMinutes={diff === null ? 0 : diff} />
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
-
       {/* Comments */}
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -619,6 +570,58 @@ export default function PersonnelDetailPage() {
           </Card>
         )}
       </div>
+
+      {/* Department breakdown — collapsible with chip preview */}
+      {deptStats.length > 0 && (
+        <div>
+          <button type="button" onClick={() => setShowDepts((v) => !v)} className="w-full text-left">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                {t('analytics.byDepartment')}
+              </h2>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-gray-400">{deptStats.length}</span>
+                <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform duration-200 ${showDepts ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+            {/* Always-visible chip preview */}
+            {!showDepts && (
+              <div className="flex flex-wrap gap-2">
+                {deptStats.slice(0, 4).map(({ department }) => (
+                  <span
+                    key={department}
+                    className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700"
+                  >
+                    {getDepartmentLabel(department, lang)}
+                  </span>
+                ))}
+                {deptStats.length > 4 && (
+                  <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-500">
+                    +{deptStats.length - 4}
+                  </span>
+                )}
+              </div>
+            )}
+          </button>
+          {showDepts && (
+            <Card padding="none" className="mt-2">
+              <div className="divide-y divide-gray-100">
+                {deptStats.map(({ department, sessionCount, avgDiff: diff }) => (
+                  <div key={department} className="flex items-center justify-between px-4 py-3 gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900">{getDepartmentLabel(department, lang)}</div>
+                      <div className="text-xs text-gray-500">{sessionCount} {t('analytics.sessionCount')}</div>
+                    </div>
+                    <PerformanceDiff diffMinutes={diff === null ? 0 : diff} />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* Recent tasks */}
       <div>
