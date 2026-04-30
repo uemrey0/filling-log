@@ -8,6 +8,12 @@
   --brand-black: #000000;
   --bg-surface: #ffffff;
   --bg-page: #F4F6F3;
+  --safe-area-bottom: env(safe-area-inset-bottom);
+  --safe-area-left: env(safe-area-inset-left);
+  --safe-area-right: env(safe-area-inset-right);
+  --mobile-nav-row-height: 4.25rem;
+  --mobile-nav-safe-padding: max(0.5rem, var(--safe-area-bottom));
+  --mobile-nav-total-height: calc(var(--mobile-nav-row-height) + var(--mobile-nav-safe-padding));
 }
 
 @theme inline {
@@ -32,7 +38,24 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Safe area for mobile bottom nav */
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+/* Safe area handling for installed mobile web apps */
+.mobile-bottom-nav {
+  min-height: var(--mobile-nav-total-height);
+  padding-right: max(0.5rem, var(--safe-area-right));
+  padding-bottom: var(--mobile-nav-safe-padding);
+  padding-left: max(0.5rem, var(--safe-area-left));
+}
+
+.mobile-bottom-nav__row {
+  min-height: var(--mobile-nav-row-height);
+}
+
+.mobile-bottom-nav-spacer {
+  padding-bottom: calc(var(--mobile-nav-total-height) + 0.75rem);
+}
+
+@media (min-width: 768px) {
+  .mobile-bottom-nav-spacer {
+    padding-bottom: 0;
+  }
 }

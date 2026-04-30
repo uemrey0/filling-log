@@ -139,7 +139,7 @@ export default function AnalyticsPage() {
         <>
           <div>
             <Skeleton className="h-3 w-24 mb-3" />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {Array.from({ length: 4 }).map((_, idx) => (
                 <Card key={`ov-sk-${idx}`} padding="sm" className="text-center space-y-2">
                   <Skeleton className="h-7 w-16 mx-auto" />
@@ -176,7 +176,7 @@ export default function AnalyticsPage() {
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
               {t('analytics.overview')}
             </h2>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <Card padding="sm" className="text-center">
                 <div className="text-2xl font-bold text-gray-900">{data.overview.totalSessions}</div>
                 <div className="text-xs text-gray-500 mt-0.5">{t('analytics.completedSessions')}</div>

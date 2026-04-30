@@ -681,9 +681,9 @@ export default function DashboardPage() {
         : '#1C7745'
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 md:space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 md:gap-6">
         <div>
           <h1 className="text-2xl font-bold text-black leading-tight">{t('dashboard.title')}</h1>
           <p className="text-sm text-gray-500 capitalize mt-0.5">{todayLabel}</p>
@@ -724,7 +724,7 @@ export default function DashboardPage() {
 
       {/* Summary strip */}
       {loading ? (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
           {Array.from({ length: 3 }).map((_, idx) => (
             <Card key={`dashboard-summary-skeleton-${idx}`} padding="sm" className="text-center space-y-2">
               <Skeleton className="h-8 w-8 rounded-full mx-auto" />
@@ -734,7 +734,7 @@ export default function DashboardPage() {
           ))}
         </div>
       ) : hasAnyTasks && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
           <Card padding="sm" className="text-center">
             <div className="mx-auto mb-2 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
               <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

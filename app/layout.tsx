@@ -6,6 +6,11 @@ import { Toaster } from 'sonner'
 export const metadata: Metadata = {
   title: 'FillerLog',
   description: 'Supermarkt filler prestatie tracking',
+  appleWebApp: {
+    capable: true,
+    title: 'Filler Log',
+    statusBarStyle: 'default',
+  },
 }
 
 export const viewport: Viewport = {
@@ -13,14 +18,15 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: 'cover',
   interactiveWidget: 'resizes-content',
+  themeColor: '#80BC17',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="nl" className="h-full">
       <head>
-        <meta name="apple-mobile-web-app-title" content="Filler Log" />
       </head>
       <body className="h-full">
         <LanguageProvider>

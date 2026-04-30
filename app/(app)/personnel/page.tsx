@@ -94,7 +94,7 @@ export default function PersonnelPage() {
       )}
 
       {loading ? (
-        <div className="space-y-2">
+        <div className="space-y-2 xl:grid xl:grid-cols-2 xl:gap-3 xl:space-y-0">
           {Array.from({ length: 6 }).map((_, idx) => (
             <Card key={`personnel-skeleton-${idx}`} padding="sm">
               <div className="flex items-center gap-3">
@@ -140,7 +140,7 @@ export default function PersonnelPage() {
                   {active.length}
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 xl:grid xl:grid-cols-2 xl:gap-3 xl:space-y-0">
                 {active.map((person) => (
                   <Link key={person.id} href={`/personnel/${person.id}`} className="block">
                     <Card padding="sm" className="hover:border-gray-300 transition-colors active:scale-[0.99]">
@@ -181,7 +181,7 @@ export default function PersonnelPage() {
                   {inactive.length}
                 </span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 xl:grid xl:grid-cols-2 xl:gap-3 xl:space-y-0">
                 {inactive.map((person) => (
                   <Link key={person.id} href={`/personnel/${person.id}`} className="block">
                     <Card padding="sm" className="hover:border-gray-300 transition-colors opacity-60">

@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useLanguage } from '@/components/providers/LanguageProvider'
@@ -71,49 +73,104 @@ const navItems = [
 export function Navigation() {
   const pathname = usePathname()
   const { t } = useLanguage()
+  const [collapsed, setCollapsed] = useState(false)
 
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
 
   return (
     <>
-      {/* Desktop top bar */}
-      <header className="hidden md:flex items-center h-14 px-6 bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="flex items-center gap-2.5 mr-10">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ backgroundColor: '#80BC17' }}
+      {/* Desktop sidebar */}
+      <aside
+        className={`hidden md:flex md:flex-col md:border-r md:border-black/5 md:bg-[#f1f0ec]/88 md:py-7 md:backdrop-blur-sm md:transition-[width,padding] md:duration-200 ${
+          collapsed ? 'md:w-[92px] md:px-3' : 'md:w-[272px] md:px-5'
+        }`}
+      >
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between gap-3'} px-2 py-1`}>
+          <Link
+            href="/dashboard"
+            className={`flex min-w-0 items-center text-gray-900 ${collapsed ? 'justify-center' : 'gap-3'}`}
           >
-            <span className="text-white text-xs font-bold tracking-tight">FL</span>
-          </div>
-          <span className="font-bold text-black text-sm tracking-tight">FillerLog</span>
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-md">
+              <Image
+                src="/icon1.png"
+                alt="FillerLog logo"
+                width={64}
+                height={64}
+                className="h-10 w-10 object-cover"
+                priority
+              />
+            </div>
+            {!collapsed && (
+              <span className="min-w-0 text-[18px] font-bold tracking-tight leading-none">FillerLog</span>
+            )}
+          </Link>
+
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => setCollapsed(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-white/60 hover:text-gray-800"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
         </div>
-        <nav className="flex items-center gap-1 flex-1">
+
+        {collapsed && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="mt-5 flex h-10 w-10 self-center items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-white/60 hover:text-gray-800"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+
+        <nav className={`flex flex-1 flex-col gap-2 ${collapsed ? 'mt-6' : 'mt-10'}`}>
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center rounded-[18px] py-3 text-[15px] font-semibold transition-colors ${
+                collapsed ? 'justify-center px-3' : 'gap-3 px-4'
+              } ${
                 isActive(item.href)
-                  ? 'text-white'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-black'
+                  ? 'bg-white text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] ring-1 ring-black/5'
+                  : 'text-gray-500 hover:bg-white/50 hover:text-gray-800'
               }`}
-              style={isActive(item.href) ? { backgroundColor: '#80BC17' } : {}}
+              aria-label={t(item.labelKey)}
+              title={collapsed ? t(item.labelKey) : undefined}
             >
-              {item.icon}
-              {t(item.labelKey)}
+              <span
+                className={`flex h-6 w-6 items-center justify-center transition-colors ${
+                  isActive(item.href) ? 'text-[#80BC17]' : 'text-gray-500'
+                }`}
+              >
+                {item.icon}
+              </span>
+              {!collapsed && <span>{t(item.labelKey)}</span>}
             </Link>
           ))}
         </nav>
-      </header>
+
+      </aside>
 
       {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 safe-bottom">
-        <div className="flex">
+      <nav className="mobile-bottom-nav md:hidden fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
+        <div className="mobile-bottom-nav__row flex">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center justify-center flex-1 pt-2 pb-1 gap-0.5 transition-colors"
+              className="flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 transition-colors"
               style={isActive(item.href) ? { color: '#80BC17' } : { color: '#6b7280' }}
             >
               {item.icon}
