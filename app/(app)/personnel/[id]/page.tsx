@@ -13,9 +13,11 @@ import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
 import { TaskSummaryCard } from '@/components/ui/TaskSummaryCard'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { TimeRangeFilter } from '@/components/ui/TimeRangeFilter'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDate, formatDuration, formatDurationWithSeconds } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
+import { getAppliedTimeFilter, getTimePresetRange, type TimePreset } from '@/lib/timeRange'
 import { toast } from 'sonner'
 import type { Personnel } from '@/lib/db/schema'
 
@@ -62,32 +64,8 @@ interface Comment {
   createdAt: string
 }
 
-type Preset = '7d' | '14d' | '30d' | '90d' | 'all' | 'custom'
-
-function toLocalDateIso(date: Date): string {
-  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return shifted.toISOString().slice(0, 10)
-}
-
-function shiftDate(dateIso: string, days: number): string {
-  const d = new Date(`${dateIso}T12:00:00`)
-  d.setDate(d.getDate() + days)
-  return toLocalDateIso(d)
-}
-
 function initials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-}
-
-function getPresetRange(preset: Preset, customFrom: string, customTo: string): { dateFrom: string; dateTo: string } | null {
-  if (preset === 'all') return null
-  if (preset === 'custom') {
-    return customFrom && customTo ? { dateFrom: customFrom, dateTo: customTo } : null
-  }
-  const days = preset === '7d' ? 7 : preset === '14d' ? 14 : preset === '30d' ? 30 : 90
-  const to = toLocalDateIso(new Date())
-  const from = shiftDate(to, -(days - 1))
-  return { dateFrom: from, dateTo: to }
 }
 
 function ComparisonBadge({
@@ -147,22 +125,21 @@ function formatRelativeTime(dateStr: string, lang: 'nl' | 'en'): string {
 export default function PersonnelDetailPage() {
   const { t, lang } = useLanguage()
   const params = useParams<{ id: string }>()
-  const initialRange = getPresetRange('7d', '', '')
+  const defaultFilter = getAppliedTimeFilter('7d', '', '')
 
   const [data, setData] = useState<PersonnelData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const [preset, setPreset] = useState<Preset>('7d')
-  const [customFrom, setCustomFrom] = useState(initialRange?.dateFrom ?? '')
-  const [customTo, setCustomTo] = useState(initialRange?.dateTo ?? '')
-  const [showFilters, setShowFilters] = useState(false)
+  const [preset, setPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [customFrom, setCustomFrom] = useState(defaultFilter.dateFrom)
+  const [customTo, setCustomTo] = useState(defaultFilter.dateTo)
   const [showActions, setShowActions] = useState(false)
   const [showDiscountInfo, setShowDiscountInfo] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
-  const [appliedPreset, setAppliedPreset] = useState<Preset>('7d')
-  const [appliedFrom, setAppliedFrom] = useState(initialRange?.dateFrom ?? '')
-  const [appliedTo, setAppliedTo] = useState(initialRange?.dateTo ?? '')
+  const [appliedPreset, setAppliedPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [appliedFrom, setAppliedFrom] = useState(defaultFilter.dateFrom)
+  const [appliedTo, setAppliedTo] = useState(defaultFilter.dateTo)
   const actionsRef = useRef<HTMLDivElement>(null)
 
   // Comments
@@ -179,8 +156,8 @@ export default function PersonnelDetailPage() {
 
   const PAGE_SIZE = 20
 
-  const buildUrl = useCallback((p: number, ap: Preset, af: string, at: string) => {
-    const range = getPresetRange(ap, af, at)
+  const buildUrl = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
+    const range = getTimePresetRange(ap, af, at)
     const qs = new URLSearchParams()
     qs.set('page', String(p))
     qs.set('limit', String(PAGE_SIZE))
@@ -191,7 +168,7 @@ export default function PersonnelDetailPage() {
     return `/api/personnel/${params.id}?${qs}`
   }, [params.id])
 
-  const load = useCallback(async (ap: Preset, af: string, at: string) => {
+  const load = useCallback(async (ap: TimePreset, af: string, at: string) => {
     setLoading(true)
     try {
       const res = await apiFetch(buildUrl(1, ap, af, at))
@@ -239,10 +216,27 @@ export default function PersonnelDetailPage() {
 
   const applyFilters = () => {
     if (!canApply) return
-    setAppliedPreset(preset)
-    setAppliedFrom(customFrom)
-    setAppliedTo(customTo)
-    setShowFilters(false)
+    const next = getAppliedTimeFilter(preset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
+  }
+
+  const resetFilters = () => {
+    setPreset(defaultFilter.preset)
+    setCustomFrom(defaultFilter.dateFrom)
+    setCustomTo(defaultFilter.dateTo)
+    setAppliedPreset(defaultFilter.preset)
+    setAppliedFrom(defaultFilter.dateFrom)
+    setAppliedTo(defaultFilter.dateTo)
+  }
+
+  const selectQuickPreset = (nextPreset: TimePreset) => {
+    setPreset(nextPreset)
+    const next = getAppliedTimeFilter(nextPreset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
   }
 
   const toggleActive = async () => {
@@ -318,7 +312,7 @@ export default function PersonnelDetailPage() {
           </div>
           <Skeleton className="h-9 w-9 rounded-xl" />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {Array.from({ length: 4 }).map((_, idx) => (
             <Card key={`sk-${idx}`} padding="sm" className="text-center space-y-2">
               <Skeleton className="h-7 w-12 mx-auto" />
@@ -345,7 +339,7 @@ export default function PersonnelDetailPage() {
 
   const deptStats = data.departmentStats ?? []
 
-  const PRESETS: { key: Preset; label: string }[] = [
+  const PRESETS: { key: TimePreset; label: string }[] = [
     { key: '7d', label: t('personnel.last7d') },
     { key: '14d', label: t('personnel.last14d') },
     { key: '30d', label: t('personnel.last30d') },
@@ -353,9 +347,7 @@ export default function PersonnelDetailPage() {
     { key: 'all', label: t('personnel.allTime') },
     { key: 'custom', label: t('personnel.customRange') },
   ]
-  const quickPresets = PRESETS.filter((p) => p.key !== 'custom')
-
-  const activeRange = getPresetRange(appliedPreset, appliedFrom, appliedTo)
+  const activeRange = getTimePresetRange(appliedPreset, appliedFrom, appliedTo)
   const rangeLabel = appliedPreset === 'all'
     ? t('personnel.allTime')
     : appliedPreset === 'custom' && activeRange
@@ -431,29 +423,31 @@ export default function PersonnelDetailPage() {
         </Card>
       )}
 
-      {/* Filter bar */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5">
-          <div className="hidden sm:flex gap-2">
-            {quickPresets.map((p) => (
-              <button key={p.key} onClick={() => { setAppliedPreset(p.key); setPreset(p.key) }} className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors" style={appliedPreset === p.key ? { backgroundColor: '#80BC17', color: '#fff' } : { backgroundColor: '#F3F4F6', color: '#374151' }}>
-                {p.label}
-              </button>
-            ))}
-            <button onClick={() => { setPreset('custom'); setShowFilters(true) }} className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors" style={appliedPreset === 'custom' ? { backgroundColor: '#80BC17', color: '#fff' } : { backgroundColor: '#F3F4F6', color: '#374151' }}>
-              {t('personnel.customRange')}
-            </button>
-          </div>
-          <span className="sm:hidden text-sm font-medium text-gray-700">{rangeLabel}</span>
-        </div>
-        <button onClick={() => setShowFilters(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" /></svg>
-          {t('personnel.filters')}
-        </button>
-      </div>
+      <TimeRangeFilter
+        title={t('personnel.filters')}
+        filterLabel={t('personnel.filters')}
+        applyLabel={t('analytics.apply')}
+        secondaryLabel={t('analytics.reset')}
+        dateFromLabel={t('analytics.dateFrom')}
+        dateToLabel={t('analytics.dateTo')}
+        presets={PRESETS}
+        appliedPreset={appliedPreset}
+        pendingPreset={preset}
+        appliedLabel={rangeLabel}
+        dateFrom={customFrom}
+        dateTo={customTo}
+        canApply={canApply}
+        onOpen={() => setPreset(appliedPreset)}
+        onQuickSelect={selectQuickPreset}
+        onPendingPresetChange={setPreset}
+        onDateFromChange={setCustomFrom}
+        onDateToChange={setCustomTo}
+        onApply={applyFilters}
+        onSecondaryAction={resetFilters}
+      />
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Card padding="sm" className="text-center">
           <div className="text-2xl font-bold text-gray-900">{stats.totalSessions}</div>
           <div className="text-xs text-gray-500 mt-0.5">{t('personnel.totalTasks')}</div>
@@ -463,8 +457,10 @@ export default function PersonnelDetailPage() {
         <Card padding="sm" className="text-center">
           {stats.avgDiff !== null ? (
             <>
-              <div className="flex justify-center mb-0.5"><PerformanceDiff diffMinutes={Number(stats.avgDiff)} /></div>
-              <div className="text-xs text-gray-500">{t('analytics.avgDifference')}</div>
+              <div className="flex justify-center mb-0.5">
+                <PerformanceDiff diffMinutes={Number(stats.avgDiff)} variant="metric" />
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">{t('analytics.avgDifference')}</div>
               {prevStats?.avgDiff !== null && prevStats !== null && <div className="mt-1 flex justify-center"><ComparisonBadge current={Number(stats.avgDiff)} prev={Number(prevStats.avgDiff)} /></div>}
             </>
           ) : (
@@ -475,16 +471,23 @@ export default function PersonnelDetailPage() {
           )}
         </Card>
 
-        {stats.avgActualPerColli !== null && (
-          <Card padding="sm" className="text-center col-span-2">
-            <div className="text-xl font-bold text-gray-900">{formatDurationWithSeconds(Number(stats.avgActualPerColli))}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{t('personnel.avgPerColli')}</div>
-            {prevStats?.avgActualPerColli !== null && prevStats !== null && <div className="mt-1 flex justify-center"><ComparisonBadge current={Number(stats.avgActualPerColli)} prev={Number(prevStats.avgActualPerColli)} /></div>}
-          </Card>
-        )}
+        <Card padding="sm" className="text-center">
+          {stats.avgActualPerColli !== null ? (
+            <>
+              <div className="text-2xl font-bold text-gray-900">{formatDurationWithSeconds(Number(stats.avgActualPerColli))}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{t('personnel.avgPerColli')}</div>
+              {prevStats?.avgActualPerColli !== null && prevStats !== null && <div className="mt-1 flex justify-center"><ComparisonBadge current={Number(stats.avgActualPerColli)} prev={Number(prevStats.avgActualPerColli)} /></div>}
+            </>
+          ) : (
+            <>
+              <div className="text-2xl font-bold text-gray-300">–</div>
+              <div className="text-xs text-gray-500 mt-0.5">{t('personnel.avgPerColli')}</div>
+            </>
+          )}
+        </Card>
 
         {/* Rating card */}
-        <Card padding="sm" className="col-span-2">
+        <Card padding="sm" className="col-span-3">
           {hasRating && avgOverall !== null ? (
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -719,37 +722,6 @@ export default function PersonnelDetailPage() {
         </div>
       </ModalOrSheet>
 
-      {/* Filter Sheet */}
-      <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold text-gray-900">{t('personnel.filters')}</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {PRESETS.map((p) => (
-              <button key={p.key} onClick={() => { setPreset(p.key); if (p.key !== 'custom') { setAppliedPreset(p.key); setShowFilters(false) } }} className="py-2.5 rounded-xl text-sm font-semibold transition-colors" style={preset === p.key ? { backgroundColor: '#80BC17', color: '#fff' } : { backgroundColor: '#F3F4F6', color: '#374151' }}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {preset === 'custom' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
-                  <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
-                  <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={applyFilters} className="flex-1" disabled={!canApply}>{t('analytics.apply')}</Button>
-                <Button variant="secondary" onClick={() => setShowFilters(false)} className="flex-1">{t('common.cancel')}</Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </ModalOrSheet>
     </div>
   )
 }

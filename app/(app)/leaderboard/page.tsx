@@ -6,8 +6,10 @@ import { useLanguage } from '@/components/providers/LanguageProvider'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { TimeRangeFilter } from '@/components/ui/TimeRangeFilter'
 import { formatDurationWithSeconds } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
+import { getAppliedTimeFilter, type TimePreset } from '@/lib/timeRange'
 
 interface PersonnelStat {
   personnelId: string
@@ -16,23 +18,11 @@ interface PersonnelStat {
   avgActualPerColli: number | null
 }
 
-type Preset = '7d' | '30d' | '90d' | 'all'
-
 const RANK_STYLES = [
   { bg: '#FFFBEB', color: '#92400E', badge: '#FCD34D' },
   { bg: '#F8FAFC', color: '#475569', badge: '#CBD5E1' },
   { bg: '#FFF7ED', color: '#9A3412', badge: '#FDBA74' },
 ]
-
-function getDateRange(preset: Preset): { dateFrom: string; dateTo: string } {
-  const now = new Date()
-  const today = now.toISOString().slice(0, 10)
-  if (preset === 'all') return { dateFrom: '', dateTo: '' }
-  const days = preset === '7d' ? 7 : preset === '30d' ? 30 : 90
-  const from = new Date(now)
-  from.setDate(from.getDate() - days)
-  return { dateFrom: from.toISOString().slice(0, 10), dateTo: today }
-}
 
 function initials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
@@ -40,15 +30,23 @@ function initials(name: string) {
 
 export default function LeaderboardPage() {
   const { t, lang } = useLanguage()
-  const [preset, setPreset] = useState<Preset>('30d')
+  const defaultFilter = getAppliedTimeFilter('30d', '', '')
+  const [preset, setPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [customFrom, setCustomFrom] = useState(defaultFilter.dateFrom)
+  const [customTo, setCustomTo] = useState(defaultFilter.dateTo)
+  const [appliedPreset, setAppliedPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [appliedFrom, setAppliedFrom] = useState(defaultFilter.dateFrom)
+  const [appliedTo, setAppliedTo] = useState(defaultFilter.dateTo)
   const [personnel, setPersonnel] = useState<PersonnelStat[]>([])
   const [loading, setLoading] = useState(true)
 
-  const presets: { key: Preset; label: string }[] = [
+  const presets: { key: TimePreset; label: string }[] = [
     { key: '7d', label: t('personnel.last7d') },
+    { key: '14d', label: t('personnel.last14d') },
     { key: '30d', label: t('personnel.last30d') },
     { key: '90d', label: t('personnel.last90d') },
     { key: 'all', label: t('personnel.allTime') },
+    { key: 'custom', label: t('personnel.customRange') },
   ]
 
   useEffect(() => {
@@ -56,10 +54,9 @@ export default function LeaderboardPage() {
     const load = async () => {
       setLoading(true)
       try {
-        const { dateFrom, dateTo } = getDateRange(preset)
         const params = new URLSearchParams()
-        if (dateFrom) params.set('dateFrom', dateFrom)
-        if (dateTo) params.set('dateTo', dateTo)
+        if (appliedFrom) params.set('dateFrom', appliedFrom)
+        if (appliedTo) params.set('dateTo', appliedTo)
         const res = await apiFetch(`/api/analytics?${params}`)
         if (!cancelled && res.ok) {
           const json = await res.json()
@@ -74,30 +71,71 @@ export default function LeaderboardPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [preset])
+  }, [appliedFrom, appliedTo])
+
+  const applyDraft = () => {
+    const next = getAppliedTimeFilter(preset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
+  }
+
+  const resetFilters = () => {
+    setPreset(defaultFilter.preset)
+    setCustomFrom(defaultFilter.dateFrom)
+    setCustomTo(defaultFilter.dateTo)
+    setAppliedPreset(defaultFilter.preset)
+    setAppliedFrom(defaultFilter.dateFrom)
+    setAppliedTo(defaultFilter.dateTo)
+  }
+
+  const selectQuickPreset = (nextPreset: TimePreset) => {
+    setPreset(nextPreset)
+    const next = getAppliedTimeFilter(nextPreset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
+  }
+
+  const appliedLabel = appliedPreset === 'all'
+    ? t('personnel.allTime')
+    : appliedPreset === 'custom'
+      ? `${appliedFrom} – ${appliedTo}`
+      : presets.find((presetOption) => presetOption.key === appliedPreset)?.label ?? ''
+
+  const customRangeValid = customFrom !== '' && customTo !== '' && customFrom <= customTo
+  const canApply = preset !== 'custom' || customRangeValid
 
   return (
     <div className="space-y-5">
-      <PageHeader title={lang === 'nl' ? 'Ranglijst' : 'Leaderboard'} />
-
-      {/* Preset filter */}
-      <div className="flex gap-2">
-        {presets.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => setPreset(p.key)}
-            className="flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors"
-            style={
-              preset === p.key
-                ? { backgroundColor: '#80BC17', color: '#fff', borderColor: '#80BC17' }
-                : { backgroundColor: '#fff', color: '#6B7280', borderColor: '#E5E7EB' }
-            }
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title={lang === 'nl' ? 'Ranglijst' : 'Leaderboard'}
+        action={(
+          <TimeRangeFilter
+            title={t('analytics.filters')}
+            filterLabel={t('common.filters')}
+            applyLabel={t('analytics.apply')}
+            secondaryLabel={t('analytics.reset')}
+            dateFromLabel={t('analytics.dateFrom')}
+            dateToLabel={t('analytics.dateTo')}
+            presets={presets}
+            appliedPreset={appliedPreset}
+            pendingPreset={preset}
+            appliedLabel={appliedLabel}
+            dateFrom={customFrom}
+            dateTo={customTo}
+            canApply={canApply}
+            showQuickPresets={false}
+            onOpen={() => setPreset(appliedPreset)}
+            onQuickSelect={selectQuickPreset}
+            onPendingPresetChange={setPreset}
+            onDateFromChange={setCustomFrom}
+            onDateToChange={setCustomTo}
+            onApply={applyDraft}
+            onSecondaryAction={resetFilters}
+          />
+        )}
+      />
 
       {loading ? (
         <Card padding="none">

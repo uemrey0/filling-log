@@ -2,15 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { useLanguage } from '@/components/providers/LanguageProvider'
-import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { PerformanceDiff } from '@/components/ui/PerformanceDiff'
-import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { TimeRangeFilter } from '@/components/ui/TimeRangeFilter'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
+import { getAppliedTimeFilter, type TimePreset } from '@/lib/timeRange'
 
 interface OverviewStats {
   totalSessions: number
@@ -32,28 +32,26 @@ interface AnalyticsData {
   byDepartment: DepartmentStat[]
 }
 
-function getDefaultDateRange() {
-  const now = new Date()
-  const today = now.toISOString().slice(0, 10)
-  const thirtyDaysAgoDate = new Date(now)
-  thirtyDaysAgoDate.setDate(thirtyDaysAgoDate.getDate() - 30)
-  const thirtyDaysAgo = thirtyDaysAgoDate.toISOString().slice(0, 10)
-  return { today, thirtyDaysAgo }
-}
-
 export default function AnalyticsPage() {
   const { t, lang } = useLanguage()
+  const defaultFilter = getAppliedTimeFilter('30d', '', '')
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showFilters, setShowFilters] = useState(false)
+  const [preset, setPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [customFrom, setCustomFrom] = useState(defaultFilter.dateFrom)
+  const [customTo, setCustomTo] = useState(defaultFilter.dateTo)
+  const [appliedPreset, setAppliedPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [appliedFrom, setAppliedFrom] = useState(defaultFilter.dateFrom)
+  const [appliedTo, setAppliedTo] = useState(defaultFilter.dateTo)
 
-  const [{ today, thirtyDaysAgo }] = useState(getDefaultDateRange)
-
-  const [filters, setFilters] = useState({
-    dateFrom: thirtyDaysAgo,
-    dateTo: today,
-  })
-  const [applied, setApplied] = useState(filters)
+  const presets: { key: TimePreset; label: string }[] = [
+    { key: '7d', label: t('personnel.last7d') },
+    { key: '14d', label: t('personnel.last14d') },
+    { key: '30d', label: t('personnel.last30d') },
+    { key: '90d', label: t('personnel.last90d') },
+    { key: 'all', label: t('personnel.allTime') },
+    { key: 'custom', label: t('personnel.customRange') },
+  ]
 
   useEffect(() => {
     let cancelled = false
@@ -61,8 +59,8 @@ export default function AnalyticsPage() {
       setLoading(true)
       try {
         const params = new URLSearchParams()
-        if (applied.dateFrom) params.set('dateFrom', applied.dateFrom)
-        if (applied.dateTo) params.set('dateTo', applied.dateTo)
+        if (appliedFrom) params.set('dateFrom', appliedFrom)
+        if (appliedTo) params.set('dateTo', appliedTo)
         const res = await apiFetch(`/api/analytics?${params}`)
         if (!cancelled && res.ok) setData(await res.json())
       } finally {
@@ -71,54 +69,71 @@ export default function AnalyticsPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [applied])
+  }, [appliedFrom, appliedTo])
 
-  const handleApply = () => {
-    setApplied({ ...filters })
-    setShowFilters(false)
+  const applyDraft = () => {
+    const next = getAppliedTimeFilter(preset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
   }
 
-  const handleReset = () => {
-    const reset = { dateFrom: thirtyDaysAgo, dateTo: today }
-    setFilters(reset)
-    setApplied(reset)
-    setShowFilters(false)
+  const resetFilters = () => {
+    setPreset(defaultFilter.preset)
+    setCustomFrom(defaultFilter.dateFrom)
+    setCustomTo(defaultFilter.dateTo)
+    setAppliedPreset(defaultFilter.preset)
+    setAppliedFrom(defaultFilter.dateFrom)
+    setAppliedTo(defaultFilter.dateTo)
   }
 
-  const hasActiveFilter = applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today
+  const selectQuickPreset = (nextPreset: TimePreset) => {
+    setPreset(nextPreset)
+    const next = getAppliedTimeFilter(nextPreset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
+  }
+
+  const appliedLabel = appliedPreset === 'all'
+    ? t('personnel.allTime')
+    : appliedPreset === 'custom'
+      ? `${appliedFrom} – ${appliedTo}`
+      : presets.find((presetOption) => presetOption.key === appliedPreset)?.label ?? ''
+
+  const customRangeValid = customFrom !== '' && customTo !== '' && customFrom <= customTo
+  const canApply = preset !== 'custom' || customRangeValid
 
   return (
     <div className="space-y-5">
       <PageHeader
         title={t('analytics.title')}
-        action={
-          <button
-            onClick={() => setShowFilters(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-colors"
-            style={
-              hasActiveFilter
-                ? { backgroundColor: '#80BC17', color: '#fff', borderColor: '#80BC17' }
-                : { backgroundColor: '#fff', color: '#374151', borderColor: '#E5E7EB' }
-            }
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-            </svg>
-            {t('common.filters')}
-          </button>
-        }
+        action={(
+          <TimeRangeFilter
+            title={t('analytics.filters')}
+            filterLabel={t('common.filters')}
+            applyLabel={t('analytics.apply')}
+            secondaryLabel={t('analytics.reset')}
+            dateFromLabel={t('analytics.dateFrom')}
+            dateToLabel={t('analytics.dateTo')}
+            presets={presets}
+            appliedPreset={appliedPreset}
+            pendingPreset={preset}
+            appliedLabel={appliedLabel}
+            dateFrom={customFrom}
+            dateTo={customTo}
+            canApply={canApply}
+            showQuickPresets={false}
+            onOpen={() => setPreset(appliedPreset)}
+            onQuickSelect={selectQuickPreset}
+            onPendingPresetChange={setPreset}
+            onDateFromChange={setCustomFrom}
+            onDateToChange={setCustomTo}
+            onApply={applyDraft}
+            onSecondaryAction={resetFilters}
+          />
+        )}
       />
-
-      {hasActiveFilter && (
-        <div className="flex flex-wrap gap-2">
-          {(applied.dateFrom !== thirtyDaysAgo || applied.dateTo !== today) && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
-              {applied.dateFrom} – {applied.dateTo}
-              <button onClick={() => { const d = { dateFrom: thirtyDaysAgo, dateTo: today }; setFilters((f) => ({ ...f, ...d })); setApplied((a) => ({ ...a, ...d })) }} className="text-gray-400 hover:text-gray-700">×</button>
-            </span>
-          )}
-        </div>
-      )}
 
       {loading ? (
         <>
@@ -216,38 +231,6 @@ export default function AnalyticsPage() {
         </>
       )}
 
-      {/* Filter sheet */}
-      <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold text-gray-900">{t('analytics.filters')}</h2>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                className="block w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-1">
-            <Button onClick={handleApply} className="flex-1">{t('analytics.apply')}</Button>
-            <Button variant="secondary" onClick={handleReset} className="flex-1">{t('analytics.reset')}</Button>
-          </div>
-        </div>
-      </ModalOrSheet>
     </div>
   )
 }

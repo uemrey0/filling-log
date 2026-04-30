@@ -11,9 +11,11 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { TaskSummaryCard } from '@/components/ui/TaskSummaryCard'
 import { ModalOrSheet } from '@/components/ui/ModalOrSheet'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { TimeRangeFilter } from '@/components/ui/TimeRangeFilter'
 import { getDepartmentLabel } from '@/lib/departments'
 import { formatTime, formatDate, formatDuration } from '@/lib/business'
 import { apiFetch } from '@/lib/api'
+import { getAppliedTimeFilter, getTimePresetRange, type TimePreset } from '@/lib/timeRange'
 
 interface SessionDetail {
   id: string
@@ -44,33 +46,10 @@ interface PageData {
   limit: number
 }
 
-type Preset = '7d' | '14d' | '30d' | '90d' | 'all' | 'custom'
-
-function toLocalDateIso(date: Date): string {
-  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-  return shifted.toISOString().slice(0, 10)
-}
-
-function shiftDate(dateIso: string, days: number): string {
-  const d = new Date(`${dateIso}T12:00:00`)
-  d.setDate(d.getDate() + days)
-  return toLocalDateIso(d)
-}
-
-function getPresetRange(preset: Preset, customFrom: string, customTo: string): { dateFrom: string; dateTo: string } | null {
-  if (preset === 'all') return null
-  if (preset === 'custom') {
-    return customFrom && customTo ? { dateFrom: customFrom, dateTo: customTo } : null
-  }
-  const days = preset === '7d' ? 7 : preset === '14d' ? 14 : preset === '30d' ? 30 : 90
-  const to = toLocalDateIso(new Date())
-  const from = shiftDate(to, -(days - 1))
-  return { dateFrom: from, dateTo: to }
-}
-
 export default function PersonnelTasksPage() {
   const { t, lang } = useLanguage()
   const params = useParams<{ id: string }>()
+  const defaultFilter = getAppliedTimeFilter('all', '', '')
 
   const [info, setInfo] = useState<PersonnelInfo | null>(null)
   const [sessions, setSessions] = useState<SessionDetail[]>([])
@@ -78,20 +57,19 @@ export default function PersonnelTasksPage() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
   const [showDiscountInfo, setShowDiscountInfo] = useState(false)
 
-  const [preset, setPreset] = useState<Preset>('all')
+  const [preset, setPreset] = useState<TimePreset>(defaultFilter.preset)
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-  const [appliedPreset, setAppliedPreset] = useState<Preset>('all')
-  const [appliedFrom, setAppliedFrom] = useState('')
-  const [appliedTo, setAppliedTo] = useState('')
+  const [appliedPreset, setAppliedPreset] = useState<TimePreset>(defaultFilter.preset)
+  const [appliedFrom, setAppliedFrom] = useState(defaultFilter.dateFrom)
+  const [appliedTo, setAppliedTo] = useState(defaultFilter.dateTo)
 
   const PAGE_SIZE = 20
 
-  const buildUrl = useCallback((p: number, ap: Preset, af: string, at: string) => {
-    const range = getPresetRange(ap, af, at)
+  const buildUrl = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
+    const range = getTimePresetRange(ap, af, at)
     const qs = new URLSearchParams()
     qs.set('page', String(p))
     qs.set('limit', String(PAGE_SIZE))
@@ -102,7 +80,7 @@ export default function PersonnelTasksPage() {
     return `/api/personnel/${params.id}?${qs}`
   }, [params.id])
 
-  const load = useCallback(async (ap: Preset, af: string, at: string) => {
+  const load = useCallback(async (ap: TimePreset, af: string, at: string) => {
     setLoading(true)
     setPage(1)
     try {
@@ -142,13 +120,30 @@ export default function PersonnelTasksPage() {
 
   const applyFilters = () => {
     if (!canApply) return
-    setAppliedPreset(preset)
-    setAppliedFrom(customFrom)
-    setAppliedTo(customTo)
-    setShowFilters(false)
+    const next = getAppliedTimeFilter(preset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
   }
 
-  const PRESETS: { key: Preset; label: string }[] = [
+  const resetFilters = () => {
+    setPreset(defaultFilter.preset)
+    setCustomFrom('')
+    setCustomTo('')
+    setAppliedPreset(defaultFilter.preset)
+    setAppliedFrom(defaultFilter.dateFrom)
+    setAppliedTo(defaultFilter.dateTo)
+  }
+
+  const selectQuickPreset = (nextPreset: TimePreset) => {
+    setPreset(nextPreset)
+    const next = getAppliedTimeFilter(nextPreset, customFrom, customTo)
+    setAppliedPreset(next.preset)
+    setAppliedFrom(next.dateFrom)
+    setAppliedTo(next.dateTo)
+  }
+
+  const PRESETS: { key: TimePreset; label: string }[] = [
     { key: '7d', label: t('personnel.last7d') },
     { key: '14d', label: t('personnel.last14d') },
     { key: '30d', label: t('personnel.last30d') },
@@ -176,16 +171,36 @@ export default function PersonnelTasksPage() {
           <h1 className="text-lg font-bold text-gray-900 truncate">{t('personnel.allTasksTitle')}</h1>
           {info && <div className="text-sm text-gray-500 truncate">{info.fullName}</div>}
         </div>
-        <button
-          onClick={() => setShowFilters(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-          </svg>
-          {t('personnel.filters')}
-        </button>
       </div>
+
+      <TimeRangeFilter
+        title={t('personnel.filters')}
+        filterLabel={t('personnel.filters')}
+        applyLabel={t('analytics.apply')}
+        secondaryLabel={t('analytics.reset')}
+        dateFromLabel={t('analytics.dateFrom')}
+        dateToLabel={t('analytics.dateTo')}
+        presets={PRESETS}
+        appliedPreset={appliedPreset}
+        pendingPreset={preset}
+        appliedLabel={
+          appliedPreset === 'all'
+            ? t('personnel.allTime')
+            : appliedPreset === 'custom' && appliedFrom && appliedTo
+              ? `${appliedFrom} – ${appliedTo}`
+              : PRESETS.find((presetOption) => presetOption.key === appliedPreset)?.label ?? ''
+        }
+        dateFrom={customFrom}
+        dateTo={customTo}
+        canApply={canApply}
+        onOpen={() => setPreset(appliedPreset)}
+        onQuickSelect={selectQuickPreset}
+        onPendingPresetChange={setPreset}
+        onDateFromChange={setCustomFrom}
+        onDateToChange={setCustomTo}
+        onApply={applyFilters}
+        onSecondaryAction={resetFilters}
+      />
 
       {/* Sessions list */}
       {loading ? (
@@ -254,68 +269,6 @@ export default function PersonnelTasksPage() {
         </div>
       </ModalOrSheet>
 
-      {/* Filter Sheet */}
-      <ModalOrSheet open={showFilters} onClose={() => setShowFilters(false)}>
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold text-gray-900">{t('personnel.filters')}</h2>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {PRESETS.map((p) => (
-              <button
-                key={p.key}
-                onClick={() => {
-                  setPreset(p.key)
-                  if (p.key !== 'custom') {
-                    setAppliedPreset(p.key)
-                    setShowFilters(false)
-                  }
-                }}
-                className="py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                style={
-                  (preset === p.key || (p.key === appliedPreset && preset === p.key))
-                    ? { backgroundColor: '#80BC17', color: '#fff' }
-                    : { backgroundColor: '#F3F4F6', color: '#374151' }
-                }
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {preset === 'custom' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateFrom')}</label>
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">{t('analytics.dateTo')}</label>
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={applyFilters} className="flex-1" disabled={!canApply}>
-                  {t('analytics.apply')}
-                </Button>
-                <Button variant="secondary" onClick={() => setShowFilters(false)} className="flex-1">
-                  {t('common.cancel')}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </ModalOrSheet>
     </div>
   )
 }
