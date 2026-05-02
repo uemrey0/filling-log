@@ -71,6 +71,7 @@ export default function SettingsPage() {
           </div>
         </div>
       </Card>
+
     </div>
   )
 }

@@ -171,6 +171,89 @@ export const personnelDepartmentDailyStats = pgTable(
   ],
 )
 
+export const authUsers = pgTable(
+  'auth_user',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    email: text('email').notNull(),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    image: text('image'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    username: text('username'),
+    displayUsername: text('display_username'),
+    role: text('role').notNull().default('user'),
+    banned: boolean('banned').notNull().default(false),
+    banReason: text('ban_reason'),
+    banExpires: timestamp('ban_expires', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('auth_user_email_idx').on(table.email),
+    uniqueIndex('auth_user_username_idx').on(table.username),
+    index('auth_user_role_idx').on(table.role),
+  ],
+)
+
+export const authSessions = pgTable(
+  'auth_session',
+  {
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    token: text('token').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    impersonatedBy: text('impersonated_by'),
+  },
+  (table) => [
+    uniqueIndex('auth_session_token_idx').on(table.token),
+    index('auth_session_user_id_idx').on(table.userId),
+  ],
+)
+
+export const authAccounts = pgTable(
+  'auth_account',
+  {
+    id: text('id').primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => authUsers.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('auth_account_user_id_idx').on(table.userId),
+    uniqueIndex('auth_account_provider_account_idx').on(table.providerId, table.accountId),
+  ],
+)
+
+export const authVerifications = pgTable(
+  'auth_verification',
+  {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('auth_verification_identifier_idx').on(table.identifier)],
+)
+
 export const personnelRelations = relations(personnel, ({ many }) => ({
   sessions: many(taskSessions),
   comments: many(personnelComments),
@@ -211,3 +294,5 @@ export type NewPersonnelRating = typeof personnelRatings.$inferInsert
 export type PersonnelDailyStat = typeof personnelDailyStats.$inferSelect
 export type DepartmentDailyStat = typeof departmentDailyStats.$inferSelect
 export type PersonnelDepartmentDailyStat = typeof personnelDepartmentDailyStats.$inferSelect
+export type AuthUser = typeof authUsers.$inferSelect
+export type NewAuthUser = typeof authUsers.$inferInsert

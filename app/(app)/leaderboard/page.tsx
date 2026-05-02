@@ -12,7 +12,7 @@ import { apiFetch } from '@/lib/api'
 import { getAppliedTimeFilter, type TimePreset } from '@/lib/timeRange'
 
 interface PersonnelStat {
-  personnelId: string
+  personnelId: string | null
   personnelName: string
   sessionCount: number
   avgActualPerColli: number | null
@@ -81,7 +81,7 @@ export default function LeaderboardPage() {
         const params = new URLSearchParams()
         if (appliedFrom) params.set('dateFrom', appliedFrom)
         if (appliedTo) params.set('dateTo', appliedTo)
-        const res = await apiFetch(`/api/analytics/personnel?${params}`)
+        const res = await apiFetch(`/api/leaderboard?${params}`)
         if (!cancelled && res.ok) {
           const json = await res.json()
           const sorted = ((json.byPersonnel ?? []) as PersonnelStat[])
@@ -222,7 +222,7 @@ export default function LeaderboardPage() {
             >
               <div className="grid grid-cols-3 items-end gap-3 px-4 pt-5 pb-5 sm:gap-5">
                 {podiumEntries.map(({ rank, person, style, columnClassName, pillarHeight }) => (
-                  <div key={person!.personnelId} className={`flex flex-col items-center ${columnClassName}`}>
+                  <div key={`${person!.personnelName}-${rank}`} className={`flex flex-col items-center ${columnClassName}`}>
                     <div className="text-center">
                       <div className="truncate text-lg font-bold leading-tight text-gray-900 sm:text-xl">
                         {person!.personnelName}
@@ -254,9 +254,8 @@ export default function LeaderboardPage() {
             <div className="divide-y divide-gray-100">
               {remainingPersonnel.map((p, idx) => {
                 const rank = idx + 4
-                const style = null
 
-                return (
+                return p.personnelId ? (
                   <Link
                     key={p.personnelId}
                     href={`/personnel/${p.personnelId}`}
@@ -264,11 +263,7 @@ export default function LeaderboardPage() {
                   >
                     <div
                       className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-black"
-                      style={
-                        style
-                          ? { backgroundColor: style.badge, color: style.badgeText }
-                          : { backgroundColor: '#F3F4F6', color: '#7A7A7A' }
-                      }
+                      style={{ backgroundColor: '#F3F4F6', color: '#7A7A7A' }}
                     >
                       {rank}
                     </div>
@@ -291,6 +286,32 @@ export default function LeaderboardPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </Link>
+                ) : (
+                  <div
+                    key={`${p.personnelName}-${rank}`}
+                    className="flex items-center gap-3 px-4 py-3.5"
+                  >
+                    <div
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-black"
+                      style={{ backgroundColor: '#F3F4F6', color: '#7A7A7A' }}
+                    >
+                      {rank}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-gray-900">{p.personnelName}</div>
+                      <div className="mt-0.5 text-xs text-gray-400">
+                        {sessionLabel(p.sessionCount, lang)}
+                      </div>
+                    </div>
+
+                    <div className="flex-shrink-0 text-right">
+                      <div className="text-sm font-bold tabular-nums text-gray-900">
+                        {formatDurationWithSeconds(p.avgActualPerColli!)}
+                        <span className="ml-1 text-[10px] font-medium text-gray-400">/ colli</span>
+                      </div>
+                    </div>
+                  </div>
                 )
               })}
             </div>
