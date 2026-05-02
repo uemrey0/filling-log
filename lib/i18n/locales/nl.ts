@@ -228,6 +228,36 @@ export const nl = {
     invalidEmail: 'Ongeldig e-mailadres',
     invalidUuid: 'Ongeldige ID',
   },
+  welcome: {
+    tagline: 'Supermarkt filler prestatie tracking',
+    featureLeaderboard: 'Ranglijst',
+    featureAnalytics: 'Analyses',
+    featureTasks: 'Taken',
+    featureLeaderboardDesc: 'Bekijk de prestatiescores van alle medewerkers.',
+    featureAnalyticsDesc: 'Inzicht in werkelijke en verwachte tijden.',
+    featureTasksDesc: 'Volg taken en sessies in realtime.',
+    signIn: 'Inloggen',
+    continueWithout: 'Doorgaan zonder inloggen',
+    hint: 'Log in voor volledige toegang of bekijk de ranglijst.',
+  },
+  signIn: {
+    username: 'Gebruikersnaam',
+    password: 'Wachtwoord',
+    submit: 'Inloggen',
+    invalidCredentials: 'Gebruikersnaam of wachtwoord is ongeldig.',
+    viewLeaderboard: 'Ranglijst bekijken',
+  },
+  resetPassword: {
+    title: 'Wachtwoord instellen',
+    newPassword: 'Nieuw wachtwoord',
+    confirmPassword: 'Wachtwoord bevestigen',
+    submit: 'Wachtwoord opslaan',
+    signingInAs: 'Inloggen als',
+    invalidToken: 'Deze wachtwoordlink is ongeldig of verlopen.',
+    passwordTooShort: 'Wachtwoord moet minimaal 8 tekens bevatten.',
+    passwordMismatch: 'Wachtwoorden komen niet overeen.',
+    updateFailed: 'Wachtwoord kon niet worden bijgewerkt.',
+  },
 }
 
 export type Translations = typeof nl
