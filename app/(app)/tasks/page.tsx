@@ -223,7 +223,7 @@ export default function TasksPage() {
   useEffect(() => {
     let cancelled = false
     setDayAvgDiff(null)
-    void apiFetch(`/api/analytics?dateFrom=${selectedDate}&dateTo=${selectedDate}`)
+    void apiFetch(`/api/analytics/overview?dateFrom=${selectedDate}&dateTo=${selectedDate}`)
       .then((r) => (r.ok ? r.json() as Promise<AnalyticsDayPayload> : null))
       .then((d) => {
         if (cancelled || !d) return

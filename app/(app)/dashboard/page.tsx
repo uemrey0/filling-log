@@ -440,7 +440,7 @@ export default function DashboardPage() {
       const [activeRes, completedRes, analyticsRes] = await Promise.all([
         apiFetch(`/api/tasks?${activeParams}`),
         apiFetch(`/api/tasks?${completedParams}`),
-        apiFetch(`/api/analytics?${analyticsParams}`),
+        apiFetch(`/api/analytics/overview?${analyticsParams}`),
       ])
 
       if (activeRes.ok && completedRes.ok) {

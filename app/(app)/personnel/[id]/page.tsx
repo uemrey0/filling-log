@@ -156,7 +156,7 @@ export default function PersonnelDetailPage() {
 
   const PAGE_SIZE = 20
 
-  const buildUrl = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
+  const buildAnalyticsQuery = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
     const range = getTimePresetRange(ap, af, at)
     const qs = new URLSearchParams()
     qs.set('page', String(p))
@@ -165,18 +165,39 @@ export default function PersonnelDetailPage() {
       qs.set('dateFrom', range.dateFrom)
       qs.set('dateTo', range.dateTo)
     }
-    return `/api/personnel/${params.id}?${qs}`
-  }, [params.id])
+    return qs.toString()
+  }, [])
 
   const load = useCallback(async (ap: TimePreset, af: string, at: string) => {
     setLoading(true)
     try {
-      const res = await apiFetch(buildUrl(1, ap, af, at))
-      if (res.ok) setData(await res.json())
+      const qs = buildAnalyticsQuery(1, ap, af, at)
+      const [personRes, summaryRes, departmentsRes, sessionsRes] = await Promise.all([
+        apiFetch(`/api/personnel/${params.id}`),
+        apiFetch(`/api/analytics/personnel/${params.id}/summary?${qs}`),
+        apiFetch(`/api/analytics/personnel/${params.id}/departments?${qs}`),
+        apiFetch(`/api/sessions/personnel/${params.id}?${qs}`),
+      ])
+
+      if (personRes.ok && summaryRes.ok && departmentsRes.ok && sessionsRes.ok) {
+        const [person, summary, departments, sessions] = await Promise.all([
+          personRes.json(),
+          summaryRes.json(),
+          departmentsRes.json(),
+          sessionsRes.json(),
+        ])
+        setData({
+          ...person,
+          ...sessions,
+          stats: summary.stats,
+          prevStats: summary.prevStats,
+          departmentStats: departments.departmentStats ?? [],
+        })
+      }
     } finally {
       setLoading(false)
     }
-  }, [buildUrl])
+  }, [buildAnalyticsQuery, params.id])
 
   const loadComments = useCallback(async () => {
     setCommentsLoading(true)

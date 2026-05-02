@@ -81,7 +81,7 @@ export default function LeaderboardPage() {
         const params = new URLSearchParams()
         if (appliedFrom) params.set('dateFrom', appliedFrom)
         if (appliedTo) params.set('dateTo', appliedTo)
-        const res = await apiFetch(`/api/analytics?${params}`)
+        const res = await apiFetch(`/api/analytics/personnel?${params}`)
         if (!cancelled && res.ok) {
           const json = await res.json()
           const sorted = ((json.byPersonnel ?? []) as PersonnelStat[])

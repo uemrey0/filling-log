@@ -38,8 +38,6 @@ interface PersonnelInfo {
 }
 
 interface PageData {
-  id: string
-  fullName: string
   sessions: SessionDetail[]
   total: number
   page: number
@@ -68,7 +66,7 @@ export default function PersonnelTasksPage() {
 
   const PAGE_SIZE = 20
 
-  const buildUrl = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
+  const buildAnalyticsQuery = useCallback((p: number, ap: TimePreset, af: string, at: string) => {
     const range = getTimePresetRange(ap, af, at)
     const qs = new URLSearchParams()
     qs.set('page', String(p))
@@ -77,30 +75,38 @@ export default function PersonnelTasksPage() {
       qs.set('dateFrom', range.dateFrom)
       qs.set('dateTo', range.dateTo)
     }
-    return `/api/personnel/${params.id}?${qs}`
-  }, [params.id])
+    return qs.toString()
+  }, [])
 
   const load = useCallback(async (ap: TimePreset, af: string, at: string) => {
     setLoading(true)
     setPage(1)
     try {
-      const res = await apiFetch(buildUrl(1, ap, af, at))
-      if (res.ok) {
-        const data: PageData = await res.json()
-        setInfo({ id: data.id, fullName: data.fullName })
+      const qs = buildAnalyticsQuery(1, ap, af, at)
+      const [personRes, sessionsRes] = await Promise.all([
+        apiFetch(`/api/personnel/${params.id}`),
+        apiFetch(`/api/sessions/personnel/${params.id}?${qs}`),
+      ])
+      if (personRes.ok && sessionsRes.ok) {
+        const [person, data] = await Promise.all([
+          personRes.json(),
+          sessionsRes.json() as Promise<PageData>,
+        ])
+        setInfo({ id: person.id, fullName: person.fullName })
         setSessions(data.sessions.filter((s) => s.endedAt))
         setTotal(data.total)
       }
     } finally {
       setLoading(false)
     }
-  }, [buildUrl])
+  }, [buildAnalyticsQuery, params.id])
 
   const loadMore = async () => {
     const nextPage = page + 1
     setLoadingMore(true)
     try {
-      const res = await apiFetch(buildUrl(nextPage, appliedPreset, appliedFrom, appliedTo))
+      const qs = buildAnalyticsQuery(nextPage, appliedPreset, appliedFrom, appliedTo)
+      const res = await apiFetch(`/api/sessions/personnel/${params.id}?${qs}`)
       if (res.ok) {
         const data: PageData = await res.json()
         setSessions((prev) => [...prev, ...data.sessions.filter((s) => s.endedAt)])

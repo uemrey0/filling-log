@@ -61,8 +61,20 @@ export default function AnalyticsPage() {
         const params = new URLSearchParams()
         if (appliedFrom) params.set('dateFrom', appliedFrom)
         if (appliedTo) params.set('dateTo', appliedTo)
-        const res = await apiFetch(`/api/analytics?${params}`)
-        if (!cancelled && res.ok) setData(await res.json())
+        const [overviewRes, departmentsRes] = await Promise.all([
+          apiFetch(`/api/analytics/overview?${params}`),
+          apiFetch(`/api/analytics/departments?${params}`),
+        ])
+        if (!cancelled && overviewRes.ok && departmentsRes.ok) {
+          const [overviewData, departmentsData] = await Promise.all([
+            overviewRes.json(),
+            departmentsRes.json(),
+          ])
+          setData({
+            overview: overviewData.overview,
+            byDepartment: departmentsData.byDepartment ?? [],
+          })
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
